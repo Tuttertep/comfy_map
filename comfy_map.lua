@@ -20,12 +20,11 @@ local settings = ac.storage {
   ownnname = false,
   colors = default_colors,
   test = false,
-  arrowsize = 10,
-  arrow_scaling = true,
+  arrowsize = 20,
+  arrow_scaling = false,
   turn_signals = true,
   tags = false,
 }
-
 --people have complained about ac.storage so looked into ini just in case
 --local config_defaults = {
 --  options = {
@@ -82,7 +81,8 @@ function tocolor(string)
     temp1[i] = rgbm.new(vec4.new(temp[i]))
   end
   for i, k in ipairs(color_names) do
-    if temp1[i] == nil then temp1[i] = rgbm.colors.lime end
+    if temp1[i] == nil and i=='map' then temp1[i] = rgbm.colors.white end
+    if temp1[i] == nil and i=='turn_signals' then temp1[i] = rgbm.colors.lime end
     colors[k] = temp1[i]
   end
   return temp1
@@ -193,7 +193,6 @@ function script.windowMain(dt)
   end
 
 
-  ui.beginOutline()
   if settings.teleporting and not (settings.teleporting_mouseover and not ui.windowHovered()) then --teleports
 
     for i,j in pairs(collected_teleports) do --teleport config helper points
@@ -205,8 +204,9 @@ function script.windowMain(dt)
       dir2:set(math.sin(h), math.cos(h))
       local color = rgbm.colors.fuchsia
       if j.LOADED then color = rgbm.colors.purple end
-      ui.drawLine(iconpos, iconpos + dir2 * 10, color)
-      ui.drawCircleFilled(iconpos, iconsize.x-1, color, 20)
+
+
+      drawTeleport(iconpos, h, color)
       ui.setCursor(iconpos - iconsize)
       ui.dummy(iconsize * 2)
       if ui.itemHovered() then ui.setTooltip(teleport_name) end
@@ -223,11 +223,26 @@ function script.windowMain(dt)
         if settings.centered and settings.rotation then teleport_position = (rotation:transformPoint(teleport_position - focusedCar.position) + focusedCar.position) end
         iconpos:set(teleport_position.x, teleport_position.z):add(config_offset):scale(config_scale):add(-offsets)
         local color = ac.canTeleportToServerPoint(i - 1) and colors.teleport_available or colors.teleport_unavailable
-        ui.drawCircleFilled(iconpos, iconsize.x-1, color, 20)
         local h = math.rad(j.HEADING + ac.getCompassAngle(vec.z) + (settings.centered and settings.rotation and rotationangle or 0))
-        dir2:set(math.sin(h), math.cos(h))
-        ui.drawLine(iconpos, iconpos + dir2 * 10, color)
+        local distance = owncar.position:distance(teleport_position) < 6
+        if distance then
+          color = rgbm.colors.gray
+          if owncar.speedKmh<20 then
+            ac.setSystemMessage('please move from teleport','you are blocking a teleport')
+          end
 
+          if not settings.teleporting_mouseover then
+            ui.setCursor(padding)
+            if ui.button('next') then calledTeleport = math.clamp(j.INDEX+1,0,#teleports1) end
+            if ui.button('previous') then calledTeleport = math.clamp(j.INDEX-1,0,#teleports1) end
+          end
+          --ui.pushStyleColor(ui.StyleColor.Text,rgbm.colors.red) ui.pushFont(ui.Font.Title) ui.beginOutline()
+          --ui.text('move from teleport')
+          --ui.popStyleColor() ui.popFont() ui.endOutline(rgbm.colors.black)
+        end
+
+
+        drawTeleport(iconpos, h, color)
         ui.setCursor(iconpos - iconsize)
         ui.dummy(iconsize * 2)
         if ui.itemClicked(ui.MouseButton.Left) and ac.canTeleportToServerPoint(j.INDEX) then --if multiple point overlap, try to guess intended one
@@ -267,10 +282,13 @@ function script.windowMain(dt)
     pos2:set(pos3.x, pos3.z):add(config_offset):scale(config_scale):sub(offsets)
     dir2:set(dir3.x, dir3.z):normalize():scale(settings.arrowsize):scale(settings.arrow_scaling and map_scale^0.3 or 1)
     dir2x:set(dir3.z, -dir3.x):normalize():scale(settings.arrowsize):scale(settings.arrow_scaling and map_scale^0.3 or 1)
+    ui.beginOutline()
     ui.drawTriangleFilled(pos2 + dir2,
       pos2 - dir2 - dir2x * 0.75,
       pos2 - dir2 + dir2x * 0.75,
-      colors.you)
+      rgbm.colors.green)
+      --colors.you)
+    ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
     if ui.keyPressed(ui.Key.Space) and ui.windowHovered() then --freecam teleport
       pos2:set(ui.mouseLocalPos()):add(offsets):scale(1/config_scale):sub(config_offset)
       local raycastheight = 3000
@@ -282,7 +300,6 @@ function script.windowMain(dt)
       end
     end
   end
-  ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
 
   if not settings.centered then --window movable while centered
     ui.setCursor()
@@ -292,27 +309,37 @@ function script.windowMain(dt)
   ui.popClipRect()
 end
 
+function drawTeleport(iconpos, h, color)
+  dir2:set(math.sin(h), math.cos(h))
+  if true then
+    ui.beginOutline()
+    ui.pathLineTo(iconpos + dir2*iconsize.x*2)
+    ui.pathArcTo(iconpos, iconsize.x*0.7, -h, -h-math.pi, 5)
+    ui.pathFillConvex(color)
+    ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
+  else
+    ui.beginOutline()
+    ui.drawCircleFilled(iconpos, iconsize.x*0.8, color, 10)
+    ui.drawLine(iconpos, iconpos + dir2 * iconsize.x*2, color)
+    ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
+  end
+end
+
+
 function script.windowMainSettings(dt)
   if first then return end
   ui.text('made by tuttertep')
 
-
   ui.tabBar('TabBar', function()
-
     ui.tabItem('settings', function() --settings tab
-
       if settings.centered then ui.text('middle click map to toggle dragging') end
       if ui.checkbox("rotate while centered", settings.rotation) then settings.rotation = not settings.rotation end
-
-      --ui.text('middle click map to toggle centering')
       if ui.checkbox("teleports", settings.teleporting) then settings.teleporting = not settings.teleporting end
       if settings.teleporting then
         ui.indent()
         if ui.checkbox("mouseover only##teleporting", settings.teleporting_mouseover) then settings.teleporting_mouseover = not settings.teleporting_mouseover end
         ui.unindent()
       end
-
-
 
       if ui.checkbox("names", settings.names) then settings.names = not settings.names end
       if settings.names then
@@ -473,7 +500,6 @@ function windowSmol(dt)
   ui.drawImage(map, -offsets1, -offsets1 + size1, colors.map) --map image
   ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
 
-
   ui.endPivotRotation(rotationangle + 90, ui.windowSize() / 2)
 
   for i = ac.getSim().carsCount - 1, 0, -1 do --draw stuff on small map
@@ -500,8 +526,8 @@ function drawName(i,color)
   local name = ac.getDriverName(i)
   ui.pushFont(ui.Font.Small)
   ui.setCursor(pos2 + namepos - ui.measureText(name) * 0.5)
-  ui.beginOutline()
   ui.drawLine(pos2, pos2 + namepos , color, 2)
+  ui.beginOutline()
   --ui.dwriteDrawText(name,settings.names_size,pos + namepos - ui.measureDWriteText(name,settings.names_size) * 0.5,rgbm.colors.white)
   ui.text(name)
   ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
@@ -515,7 +541,7 @@ function drawArrow(car,color)
     pos2 - dir2 - dir2x * 0.75, --right
     pos2 - dir2 + dir2x * 0.75, --left
   color)
-  if settings.turn_signals and version>2051 then
+  if settings.turn_signals and version>2051 then --and not ac.getSim().isReplayOnlyMode then
     if car.turningLightsActivePhase then
       if car.turningLeftLights then
         ui.drawTriangleFilled(
@@ -573,9 +599,11 @@ function asd2()
   end
   asd1 = nil
 end
+asd2()
 
 function onShowWindow() --somehow works?
   if first then
+    ui.text('map file loading or missing')
     image_size = ui.imageSize(map) ~= vec2() and ui.imageSize(map) or vec2(asd.WIDTH,asd.HEIGHT)
     map_scale = math.min((ui.windowWidth() - padding.x) / image_size.x, (ui.windowHeight() - padding.y) / image_size.y)
     if settings.centered then map_scale = 0.5 end
