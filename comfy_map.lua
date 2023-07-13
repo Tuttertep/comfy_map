@@ -3,8 +3,39 @@
 --i'm already sorry if you read this because everything below is a disaster 😭
 
 ui.setAsynchronousImagesLoading(true)
-local default_colors = '0,0.5,0,0.9|0,0,0.5,0.9|0.5,0,0,0.9|1,0.5,0.5,1|0.8,0,0,1|1,1,1,1|0,1,0,1'
-local settings = ac.storage {
+
+local default_colors = stringify{
+  you = {
+    color = rgbm(0,0.5,0,0.9),
+    size = 1,
+  },
+  friend = {
+    color = rgbm(0,0,0.5,0.9),
+    size = 1,
+  },
+  player = {
+    color = rgbm(0.5,0,0,0.9),
+    size = 1,
+  },
+  teleport_available = {
+    color = rgbm(1,0.5,0.5,1),
+    size = 1,
+  },
+  teleport_unavailable = {
+    color = rgbm(0.8,0,0,1),
+    size = 1,
+  },
+  map = {
+    color = rgbm(1,1,1,1),
+    size = 1,
+  },
+  turn_signals = {
+    color = rgbm(0,1,0,1),
+    size = 1,
+  },
+}
+
+local defaults = {
   centered = false,
   rotation = true,
   teleporting = true,
@@ -13,53 +44,38 @@ local settings = ac.storage {
   namesx = 0,
   namesy = 0,
   names = true,
+  names_length = 6,
   names_smol = true,
   names_mouseover = true,
+  names_onlyfriends = false,
+  names_smol_onlyfriends = false,
   names_smol_mouseover = true,
   names_spectate = false,
   ownnname = false,
-  colors = default_colors,
+  markers = default_colors,
   test = false,
   arrowsize = 20,
   arrow_scaling = false,
   turn_signals = true,
   tags = false,
 }
---people have complained about ac.storage so looked into ini just in case
---local config_defaults = {
---  options = {
---    centered = false,
---    rotation = true,
---    teleporting = true,
---    teleporting_mouseover = true,
---    friends = true,
---    namesx = 0,
---    namesy = 0,
---    names = true,
---    names_smol = true,
---    names_mouseover = true,
---    names_smol_mouseover = true,
---    names_spectate = false,
---    ownnname = false,
---    colors = default_colors,
---    test = false,
---    arrowsize = 10,
---    arrow_scaling = true,
---    turn_signals = true,
---    tags = false,
---    },
---  colors = {
---    you = rgbm(0, 0.5, 0, 0.9),
---    friend = rgbm(0, 0, 0.5, 0.9),
---    player = rgbm(0.5, 0, 0, 0.9),
---    teleport_available = rgbm(1, 0.5, 0.5, 1),
---    teleport_unavailable = rgbm(0.8, 0, 0, 1),
---    map = rgbm(1, 1, 1, 1)
---  }
---}
---local config = ac.INIConfig.load(ac.getFolder(ac.FolderID.ACApps) .. '/lua/comfy_map/config.ini', ac.INIFormat.Extended)
---local settings1 = config:mapConfig(config_defaults)
+local settings = ac.storage(defaults)
 
+local markers = {}
+
+
+function loadMarkers()
+    markers = stringify.parse(settings.markers)
+    ac.debug('test', markers)
+    if markers.you==nil then
+      markers = stringify.parse(default_colors)
+    end
+end
+
+function saveMarkers(m)
+  settings.markers = stringify(m)
+  loadCars()
+end
 
 
 local owncar, focusedCar = ac.getCar(0), ac.getCar(0)
@@ -67,28 +83,9 @@ local first = true
 local versionerror = "requires csp version 1.78 or newer (this message is displayed when the version id is below 2000)"
 local version = ac.getPatchVersionCode()
 local collected_teleports = {}
-local selectedcolor = 'you'
 
 local iconpos, iconsize = vec2(), vec2(5, 5)
 local namepos = vec2(settings.namesx, settings.namesy)
-local colors = {}
-local color_names = { 'you', 'friend', 'player', 'teleport_available', 'teleport_unavailable', 'map', 'turn_signals' }
-
-function tocolor(string)
-  local temp = string:split('|')
-  local temp1 = {}
-  for i = 1, #temp do
-    temp1[i] = rgbm.new(vec4.new(temp[i]))
-  end
-  for i, k in ipairs(color_names) do
-    if temp1[i] == nil and i=='map' then temp1[i] = rgbm.colors.white end
-    if temp1[i] == nil and i=='turn_signals' then temp1[i] = rgbm.colors.lime end
-    colors[k] = temp1[i]
-  end
-  return temp1
-end
-
-tocolor(settings.colors)
 
 local vec = {x=vec3(1,0,0),y=vec3(0,1,0),z=vec3(0,0,1),empty=vec3()}
 local pos3, dir3, pos2, dir2, dir2x = vec3(), vec3(), vec2(), vec2(), vec2()
@@ -114,6 +111,45 @@ if version >= 2000 then
   image_size = ui.imageSize(map)
 end
 
+local pink = rgbm(1,175/255,1,1)
+function getPlayerColor(i)
+  if i == focusedCar.index then return markers.you.color, markers.you.size end
+  if i>0 and (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
+    if version>2051 then ac.setDriverChatNameColor(i,pink) end
+    return pink,markers.friend.size
+  end
+  if settings.friends and ac.isTaggedAsFriend(ac.getDriverName(i)) then return markers.friend.color, markers.friend.size end
+  if version>2363 and settings.tags then
+    local tags = ac.DriverTags(ac.getDriverName(i))
+    if tags.color == rgbm.colors.white then return markers.player.color,markers.player.size end
+    return tags.color, markers.friend.size
+  end
+  return markers.player.color,markers.player.size
+end
+
+local cars = {}
+function loadCars()
+  loadMarkers()
+  cars = {}
+  for i=0, ac.getSim().carsCount-1 do
+    local color, arrow_size = getPlayerColor(i)
+    local name = ac.getDriverName(i)
+    if settings.names_length>0 and #name > settings.names_length then
+      name = string.sub(name, 1, settings.names_length)
+    end
+    table.insert(cars,{
+      index = i,
+      name = name,
+      isTaggedAsFriend = ac.isTaggedAsFriend(ac.getDriverName(i)),
+      isTraffic = ac.getDriverName(i):find('Traffic'),
+      isHidingLabels = ac.getCar(i).isHidingLabels,
+      isActive = ac.getCar(i).isActive,
+      color = color,
+      size = arrow_size,
+    })
+  end
+  table.sort(cars, function(a,b) return a.isTaggedAsFriend or a.index==0 end)
+end
 
 function script.windowMain(dt)
   if version < 2000 then ui.text(versionerror) return end
@@ -162,16 +198,18 @@ function script.windowMain(dt)
 
   ac.debug('map_scale',map_scale)
   ui.beginOutline()
-  ui.drawImage(current_map, -offsets, -offsets + size, colors.map) --map image
-  ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
+  ui.drawImage(current_map, -offsets, -offsets + size, markers.map.color) --map image
+  ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
 
 
   if settings.centered and settings.rotation then ui.endPivotRotation(rotationangle + 90, ui.windowSize() / 2) end
 
 
 
-  for i = ac.getSim().carsCount - 1, 0, -1 do --draw cars on map
-    local car = ac.getCar(i)
+  --for i = ac.getSim().carsCount - 1, 0, -1 do --draw cars on map
+  for i,j in pairs(cars) do
+    local car = ac.getCar(j.index)
+    ac.debug('asd',j.index)
     if shouldDrawCar(car) then
       pos3:set(car.position)
       dir3:set(car.look)
@@ -180,20 +218,22 @@ function script.windowMain(dt)
         dir3 = rotation:transformPoint(car.look)
       end
       pos2:set(pos3.x, pos3.z):add(config_offset):scale(config_scale):add(-offsets)
-      dir2:set(dir3.x, dir3.z):scale(settings.arrowsize):scale(settings.arrow_scaling and map_scale^0.3 or 1)
-      dir2x:set(dir3.z, -dir3.x):scale(settings.arrowsize):scale(settings.arrow_scaling and map_scale^0.3 or 1)
+      dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and map_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
+      dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and map_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
+      ac.debug(i, j.size)
 
-      color = getPlayerColor(i)
+      --color = getPlayerColor(i)
 
-      drawArrow(car,color)
-      if settings.names and not (settings.names_mouseover and not ui.windowHovered()) then
-          drawName(i,color)
+      drawArrow(car,j.color)
+      if settings.names and (not settings.names_mouseover or ui.windowHovered()) then
+          drawName(j)
       end
     end
   end
 
 
-  if settings.teleporting and not (settings.teleporting_mouseover and not ui.windowHovered()) then --teleports
+  if settings.teleporting and (not settings.teleporting_mouseover or ui.windowHovered()) then --teleports
+
 
     for i,j in pairs(collected_teleports) do --teleport config helper points
       local teleport_position = j.POS
@@ -206,9 +246,7 @@ function script.windowMain(dt)
       if j.LOADED then color = rgbm.colors.purple end
 
 
-      drawTeleport(iconpos, h, color)
-      ui.setCursor(iconpos - iconsize)
-      ui.dummy(iconsize * 2)
+      drawTeleport(iconpos, h, color, iconsize)
       if ui.itemHovered() then ui.setTooltip(teleport_name) end
       if ui.itemClicked(ui.MouseButton.Left) then ac.setCurrentCamera(ac.CameraMode.Free) ac.setCameraPosition(j.POS) ac.setCameraDirection(dir3:set(dir2.x,0,dir2.y)) end
       if ui.itemClicked(ui.MouseButton.Right) then table.remove(collected_teleports, i) end
@@ -222,7 +260,8 @@ function script.windowMain(dt)
         local teleport_name = (j.GROUP ~= nil and j.GROUP .. '/' or "") .. j.POINT -- .. ' ' .. i-1 .. ' ' .. j.INDEX
         if settings.centered and settings.rotation then teleport_position = (rotation:transformPoint(teleport_position - focusedCar.position) + focusedCar.position) end
         iconpos:set(teleport_position.x, teleport_position.z):add(config_offset):scale(config_scale):add(-offsets)
-        local color = ac.canTeleportToServerPoint(i - 1) and colors.teleport_available or colors.teleport_unavailable
+        local marker = ac.canTeleportToServerPoint(j.INDEX) and markers.teleport_available or markers.teleport_unavailable
+        local color = marker.color
         local h = math.rad(j.HEADING + ac.getCompassAngle(vec.z) + (settings.centered and settings.rotation and rotationangle or 0))
         local distance = owncar.position:distance(teleport_position) < 6
         if distance then
@@ -242,9 +281,7 @@ function script.windowMain(dt)
         end
 
 
-        drawTeleport(iconpos, h, color)
-        ui.setCursor(iconpos - iconsize)
-        ui.dummy(iconsize * 2)
+        drawTeleport(iconpos, h, color, iconsize*marker.size)
         if ui.itemClicked(ui.MouseButton.Left) and ac.canTeleportToServerPoint(j.INDEX) then --if multiple point overlap, try to guess intended one
           if not calledTeleport then calledTeleport = j.INDEX end --this feature is peak gremlin
           local closest = {distance = 1000000, car = ac.getCar(0)}
@@ -287,8 +324,8 @@ function script.windowMain(dt)
       pos2 - dir2 - dir2x * 0.75,
       pos2 - dir2 + dir2x * 0.75,
       rgbm.colors.green)
-      --colors.you)
-    ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
+      --markers.you.color)
+    ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
     if ui.keyPressed(ui.Key.Space) and ui.windowHovered() then --freecam teleport
       pos2:set(ui.mouseLocalPos()):add(offsets):scale(1/config_scale):sub(config_offset)
       local raycastheight = 3000
@@ -309,20 +346,22 @@ function script.windowMain(dt)
   ui.popClipRect()
 end
 
-function drawTeleport(iconpos, h, color)
+function drawTeleport(iconpos, h, color, size)
   dir2:set(math.sin(h), math.cos(h))
   if true then
     ui.beginOutline()
-    ui.pathLineTo(iconpos + dir2*iconsize.x*2)
-    ui.pathArcTo(iconpos, iconsize.x*0.7, -h, -h-math.pi, 5)
+    ui.pathLineTo(iconpos + dir2*size.x*2)
+    ui.pathArcTo(iconpos, size.x*0.7, -h, -h-math.pi, 5)
     ui.pathFillConvex(color)
-    ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
+    ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   else
     ui.beginOutline()
-    ui.drawCircleFilled(iconpos, iconsize.x*0.8, color, 10)
-    ui.drawLine(iconpos, iconpos + dir2 * iconsize.x*2, color)
-    ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
+    ui.drawCircleFilled(iconpos, size.x*0.8, color, 10)
+    ui.drawLine(iconpos, iconpos + dir2 * size.x*2, color)
+    ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   end
+  ui.setCursor(iconpos - size)
+  ui.dummy(size * 2)
 end
 
 
@@ -334,6 +373,7 @@ function script.windowMainSettings(dt)
     ui.tabItem('settings', function() --settings tab
       if settings.centered then ui.text('middle click map to toggle dragging') end
       if ui.checkbox("rotate while centered", settings.rotation) then settings.rotation = not settings.rotation end
+      if ui.itemHovered() then ui.setTooltip('middle click map to toggle rotation') end
       if ui.checkbox("teleports", settings.teleporting) then settings.teleporting = not settings.teleporting end
       if settings.teleporting then
         ui.indent()
@@ -356,12 +396,15 @@ function script.windowMainSettings(dt)
           ui.unindent()
         end
       end
-
-      if ui.checkbox("right click name to spectate", settings.names_spectate) then settings.names_spectate = not settings.names_spectate end
-      if ui.checkbox("focused car's name", settings.ownnname) then settings.ownnname = not settings.ownnname end
-      settings.namesx = ui.slider('##' .. 'name x offset', settings.namesx, -100,100, 'name x offset' .. ': %.0f')
-      settings.namesy = ui.slider('##' .. 'name y offset', settings.namesy,-100,100, 'name y offset:' .. ': %.0f')
-      namepos:set(settings.namesx, settings.namesy)
+      if settings.names_smol or settings.names then
+        settings.names_length = ui.slider('##' .. 'limit length', settings.names_length, 0,20, 'limit length' .. ': %.0f')
+        settings.namesx = ui.slider('##' .. 'name x offset', settings.namesx, -100,100, 'name x offset' .. ': %.0f')
+        settings.namesy = ui.slider('##' .. 'name y offset', settings.namesy,-100,100, 'name y offset:' .. ': %.0f')
+        namepos:set(settings.namesx, settings.namesy)
+        if ui.checkbox("right click name to spectate", settings.names_spectate) then settings.names_spectate = not settings.names_spectate end
+        if ui.checkbox("focused car's name", settings.ownnname) then settings.ownnname = not settings.ownnname end
+  
+      end
       --if ui.checkbox("test", settings.test) then settings.test = not settings.test end
 
 
@@ -377,7 +420,7 @@ function script.windowMainSettings(dt)
 
     end)
 
-    ui.tabItem('map arrows', function() --arrows tab
+    ui.tabItem('map markers', function() --arrows tab
       if version>2051 then
         if ui.checkbox("turn signals", settings.turn_signals) then settings.turn_signals = not settings.turn_signals end
       end
@@ -388,19 +431,26 @@ function script.windowMainSettings(dt)
       end
 
       settings.arrowsize = ui.slider('##' .. 'arrow size', settings.arrowsize, 5, 50, 'arrow size' .. ': %.0f')
-      ui.colorPicker(selectedcolor, colors[selectedcolor], bit.bor(ui.ColorPickerFlags.AlphaBar, ui.ColorPickerFlags.DisplayHex))
-      local save_color = ''
-      for i, j in pairs(color_names) do
-        if ui.selectable(j, selectedcolor == j,_, ui.measureText(j)) then selectedcolor = j end
-        save_color = save_color .. colors[j].r .. "," .. colors[j].g .. "," .. colors[j].b .. "," .. colors[j].mult .. '|'
-      end
 
-      settings.colors = save_color
-      if ui.button('reset colors') then
-        settings.colors = default_colors
-        tocolor(settings.colors)
+      for i, j in pairs(markers) do
+        ui.setNextItemWidth(100)
+        j.size = ui.slider('##' .. i .. 'size', j.size, 0,2, 'size' .. ': %.2f')
+        ui.sameLine()
+        if ui.colorButton(i,j.color, bit.bor(ui.ColorPickerFlags.AlphaBar, ui.ColorPickerFlags.AlphaPreview, ui.ColorPickerFlags.PickerHueBar)) then
+          markers[i].color = j.color
+        end
+        ui.sameLine() ui.text(i)
+      end
+      if ui.button('reset markers') then
+        saveMarkers(default_colors)
+        markers = stringify.parse(default_colors)
       end
     end)
+    if ui.mouseDown() then
+      saveMarkers(markers)
+      loadCars()
+    end
+  
 
     ui.tabItem('teleport config helper', function() --teleport tab
       if ac.getSim().cameraMode == ac.CameraMode.Free then --button to return to car because pressing f1 is annoying 
@@ -495,44 +545,39 @@ function windowSmol(dt)
   rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
   rotation = mat4x4.rotation(math.rad(rotationangle), vec.y)
   ui.beginRotation()
-
   ui.beginOutline()
-  ui.drawImage(map, -offsets1, -offsets1 + size1, colors.map) --map image
-  ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
-
+  ui.drawImage(map, -offsets1, -offsets1 + size1, markers.map.color) --map image
+  ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   ui.endPivotRotation(rotationangle + 90, ui.windowSize() / 2)
 
-  for i = ac.getSim().carsCount - 1, 0, -1 do --draw stuff on small map
-    local car = ac.getCar(i)
+  for i,j in pairs(cars) do  --draw stuff on small map
+    local car = ac.getCar(j.index)
     if shouldDrawCar(car) then
       pos3:set(rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position)
       dir3:set(rotation:transformPoint(car.look))
       pos2:set(pos3.x, pos3.z):add(config_offset):scale(smol_scale / asd.SCALE_FACTOR):add(-offsets1)
-      dir2:set(dir3.x, dir3.z):scale(settings.arrowsize):scale(settings.arrow_scaling and smol_scale^0.3 or 1)
-      dir2x:set(dir3.z, -dir3.x):scale(settings.arrowsize):scale(settings.arrow_scaling and smol_scale^0.3 or 1)
-
-      color = getPlayerColor(i)
-      drawArrow(car, color)
-      if settings.names_smol and not (settings.names_smol_mouseover and not ui.windowHovered()) then drawName(i,color) end
+      dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and smol_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
+      dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and smol_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
+      drawArrow(car, j.color)
+      if settings.names_smol and (not settings.names_smol_mouseover or ui.windowHovered()) then drawName(j) end
     end
   end
-
 end
 
 function shouldDrawCar(car) return car.isConnected and (not car.isHidingLabels) and car.isActive end
 
-function drawName(i,color)
-  if i==ac.getSim().focusedCar and not settings.ownnname then return end
-  local name = ac.getDriverName(i)
+
+function drawName(car)
+  if car.index==ac.getSim().focusedCar and not settings.ownnname then return end
   ui.pushFont(ui.Font.Small)
-  ui.setCursor(pos2 + namepos - ui.measureText(name) * 0.5)
-  ui.drawLine(pos2, pos2 + namepos , color, 2)
+  ui.setCursor(pos2 + namepos - ui.measureText(car.name) * 0.5)
+  ui.drawLine(pos2, pos2 + namepos , car.color, 2)
   ui.beginOutline()
   --ui.dwriteDrawText(name,settings.names_size,pos + namepos - ui.measureDWriteText(name,settings.names_size) * 0.5,rgbm.colors.white)
-  ui.text(name)
-  ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
+  ui.text(car.name)
+  ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   ui.popFont()
-  if ui.itemClicked(1) and settings.names_spectate then ac.focusCar(i) end
+  if ui.itemClicked(1) and settings.names_spectate then ac.focusCar(car.index) end
 end
 
 function drawArrow(car,color)
@@ -543,63 +588,40 @@ function drawArrow(car,color)
   color)
   if settings.turn_signals and version>2051 then --and not ac.getSim().isReplayOnlyMode then
     if car.turningLightsActivePhase then
+      dir2:scale(markers.turn_signals.size)
+      dir2x:scale(markers.turn_signals.size)
       if car.turningLeftLights then
         ui.drawTriangleFilled(
           pos2 + dir2*0.5 + dir2x * 0.75, --up
           pos2 - dir2*0.5 + dir2x * 0.75, --right
           pos2 + dir2x * 1.5, --left
-          colors.turn_signals)
+          markers.turn_signals.color)
       end
       if car.turningRightLights then
         ui.drawTriangleFilled(
           pos2 + dir2*0.5 - dir2x * 0.75, --up
           pos2 - dir2*0.5 - dir2x * 0.75, --right
           pos2 - dir2x * 1.5, --left
-          colors.turn_signals)
+          markers.turn_signals.color)
       end
     end
   end
-  ui.endOutline(outline:set(rgbm.colors.black, colors.map.mult),  colors.map.mult^2)
+  ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
 end
 
 
-local pink = rgbm(1,175/255,1,1)
 ac.onClientConnected( function(i, j) --tags
   if version>2051 then ac.setDriverChatNameColor(i, nil) end
   setTimeout(function()
-    if version>2363 and settings.tags then
-      local tags = ac.DriverTags(ac.getDriverName(i))
-      if version>2051 then ac.setDriverChatNameColor(i, tags.color) end
-    end
-    asd2()
+    --if version>2363 and settings.tags then
+    --  local tags = ac.DriverTags(ac.getDriverName(i))
+    --  if version>2051 then ac.setDriverChatNameColor(i, tags.color) end
+    --end
+    loadCars()
   end, 5)
 end)
 
-function getPlayerColor(i)
-  if colors==nil then return rgbm.colors.white end
-  if i == focusedCar.index then return colors.you end
-  if i==asd1 then return pink end
-  if settings.friends and ac.isTaggedAsFriend(ac.getDriverName(i)) then return colors.friend end
-  if version>2363 and settings.tags then
-    local tags = ac.DriverTags(ac.getDriverName(i))
-    if tags.color == rgbm.colors.white then return colors.player end
-    return tags.color
-  end
-  return colors.player
-end
 
-function asd2()
-  for i=1,ac.getSim().carsCount-1 do
-    if (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
-      asd1 = i
-      ac.debug('asd1',i)
-      if version>2051 then ac.setDriverChatNameColor(i,pink) end
-      return true
-    end
-  end
-  asd1 = nil
-end
-asd2()
 
 function onShowWindow() --somehow works?
   if first then
@@ -614,7 +636,7 @@ function onShowWindow() --somehow works?
       onlineExtras = ac.INIConfig.onlineExtras()
       teleports1 = loadTeleports(onlineExtras)
     end
-    asd2()
+    loadCars()
     if ui.isImageReady(current_map) then
       first = false
     end
