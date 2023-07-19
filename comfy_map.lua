@@ -27,7 +27,7 @@ local default_colors = stringify{
   },
   map = {
     color = rgbm(1,1,1,1),
-    size = 1,
+    --size = 1,
   },
   turn_signals = {
     color = rgbm(0,1,0,1),
@@ -77,7 +77,6 @@ function saveMarkers(m)
   loadCars()
 end
 
-
 local owncar, focusedCar = ac.getCar(0), ac.getCar(0)
 local first = true
 local versionerror = "requires csp version 1.78 or newer (this message is displayed when the version id is below 2000)"
@@ -114,13 +113,10 @@ end
 local pink = rgbm(1,175/255,1,1)
 function getPlayerColor(i)
   if i == focusedCar.index then return markers.you.color, markers.you.size end
-  if i>0 and (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
-    if version>2051 then ac.setDriverChatNameColor(i,pink) end
-    return pink,markers.friend.size
-  end
+  if i==asd1 and i>0 then return pink,markers.friend.size end
   if settings.friends and ac.isTaggedAsFriend(ac.getDriverName(i)) then return markers.friend.color, markers.friend.size end
   if version>2363 and settings.tags then
-    local tags = ac.DriverTags(ac.getDriverName(i))
+    local tags = ac.getDriverTags(i)
     if tags.color == rgbm.colors.white then return markers.player.color,markers.player.size end
     return tags.color, markers.friend.size
   end
@@ -129,13 +125,16 @@ end
 
 local cars = {}
 function loadCars()
-  loadMarkers()
   cars = {}
+  asd1 = nil
   for i=0, ac.getSim().carsCount-1 do
-    local color, arrow_size = getPlayerColor(i)
     local name = ac.getDriverName(i)
     if settings.names_length>0 and #name > settings.names_length then
       name = string.sub(name, 1, settings.names_length)
+    end
+    if i>0 and (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
+      asd1 = i
+      if version>2051 then ac.setDriverChatNameColor(i,pink) end
     end
     table.insert(cars,{
       index = i,
@@ -144,11 +143,14 @@ function loadCars()
       isTraffic = ac.getDriverName(i):find('Traffic'),
       isHidingLabels = ac.getCar(i).isHidingLabels,
       isActive = ac.getCar(i).isActive,
-      color = color,
-      size = arrow_size,
     })
   end
-  table.sort(cars, function(a,b) return a.isTaggedAsFriend or a.index==0 end)
+  table.sort(cars, function (a,b)
+    if a.index == 0 then return false end
+    if a.isTaggedAsFriend then return false end
+      return (a.index>b.index)
+  end)
+  ac.debug('asd',cars)
 end
 
 function script.windowMain(dt)
@@ -209,8 +211,8 @@ function script.windowMain(dt)
   --for i = ac.getSim().carsCount - 1, 0, -1 do --draw cars on map
   for i,j in pairs(cars) do
     local car = ac.getCar(j.index)
-    ac.debug('asd',j.index)
     if shouldDrawCar(car) then
+      j.color, j.size = getPlayerColor(j.index)
       pos3:set(car.position)
       dir3:set(car.look)
       if settings.centered and settings.rotation then
@@ -220,10 +222,6 @@ function script.windowMain(dt)
       pos2:set(pos3.x, pos3.z):add(config_offset):scale(config_scale):add(-offsets)
       dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and map_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
       dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and map_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
-      ac.debug(i, j.size)
-
-      --color = getPlayerColor(i)
-
       drawArrow(car,j.color)
       if settings.names and (not settings.names_mouseover or ui.windowHovered()) then
           drawName(j)
@@ -398,6 +396,7 @@ function script.windowMainSettings(dt)
       end
       if settings.names_smol or settings.names then
         settings.names_length = ui.slider('##' .. 'limit length', settings.names_length, 0,20, 'limit length' .. ': %.0f')
+        if ui.itemEdited() then loadCars() end
         settings.namesx = ui.slider('##' .. 'name x offset', settings.namesx, -100,100, 'name x offset' .. ': %.0f')
         settings.namesy = ui.slider('##' .. 'name y offset', settings.namesy,-100,100, 'name y offset:' .. ': %.0f')
         namepos:set(settings.namesx, settings.namesy)
@@ -432,25 +431,29 @@ function script.windowMainSettings(dt)
 
       settings.arrowsize = ui.slider('##' .. 'arrow size', settings.arrowsize, 5, 50, 'arrow size' .. ': %.0f')
 
+      local changed = false
       for i, j in pairs(markers) do
         ui.setNextItemWidth(100)
-        j.size = ui.slider('##' .. i .. 'size', j.size, 0,2, 'size' .. ': %.2f')
-        ui.sameLine()
-        if ui.colorButton(i,j.color, bit.bor(ui.ColorPickerFlags.AlphaBar, ui.ColorPickerFlags.AlphaPreview, ui.ColorPickerFlags.PickerHueBar)) then
-          markers[i].color = j.color
+        if j.size~=nil then
+          j.size = ui.slider('##' .. i .. 'size', j.size, 0,2, 'size' .. ': %.2f')
+          if ui.itemEdited() then changed = true end
+          ui.sameLine()
         end
+        ui.colorButton(i,j.color, bit.bor(ui.ColorPickerFlags.AlphaBar, ui.ColorPickerFlags.AlphaPreview, ui.ColorPickerFlags.PickerHueBar))
+        if ui.itemEdited() then changed = true end
         ui.sameLine() ui.text(i)
       end
       if ui.button('reset markers') then
-        saveMarkers(default_colors)
         markers = stringify.parse(default_colors)
+        changed = true
       end
-    end)
-    if ui.mouseDown() then
-      saveMarkers(markers)
-      loadCars()
-    end
+      if changed then
+        saveMarkers(markers)
+        --loadCars()
+      end
   
+    end)
+
 
     ui.tabItem('teleport config helper', function() --teleport tab
       if ac.getSim().cameraMode == ac.CameraMode.Free then --button to return to car because pressing f1 is annoying 
@@ -529,30 +532,29 @@ end
 
 
 local offsets1 = vec2()
-local smol_zoom = 0.5
+local smol_scale = 0.5
 function windowSmol(dt)
   if version < 2000 then ui.text(versionerror) return end
   onShowWindow()
   if first then return end
 
   ui.invisibleButton()
-  if ui.windowHovered() and ui.mouseWheel() then smol_zoom = smol_zoom * (1 + 0.1 * ui.mouseWheel()) end
+  if ui.windowHovered() and ui.mouseWheel() then smol_scale = smol_scale * (1 + 0.1 * ui.mouseWheel()) end
   focusedCar = ac.getCar(ac.getSim().focusedCar)
-  smol_scale = smol_zoom
-  size1 = image_size * smol_scale
   offsets1:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(smol_scale / asd.SCALE_FACTOR):add(-ui.windowSize() / 2) --autocenter
 
   rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
   rotation = mat4x4.rotation(math.rad(rotationangle), vec.y)
   ui.beginRotation()
   ui.beginOutline()
-  ui.drawImage(map, -offsets1, -offsets1 + size1, markers.map.color) --map image
+  ui.drawImage(map, -offsets1, -offsets1 + image_size * smol_scale, markers.map.color) --map image
   ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   ui.endPivotRotation(rotationangle + 90, ui.windowSize() / 2)
 
   for i,j in pairs(cars) do  --draw stuff on small map
     local car = ac.getCar(j.index)
     if shouldDrawCar(car) then
+      j.color, j.size = getPlayerColor(j.index)
       pos3:set(rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position)
       dir3:set(rotation:transformPoint(car.look))
       pos2:set(pos3.x, pos3.z):add(config_offset):scale(smol_scale / asd.SCALE_FACTOR):add(-offsets1)
@@ -613,11 +615,7 @@ end
 ac.onClientConnected( function(i, j) --tags
   if version>2051 then ac.setDriverChatNameColor(i, nil) end
   setTimeout(function()
-    --if version>2363 and settings.tags then
-    --  local tags = ac.DriverTags(ac.getDriverName(i))
-    --  if version>2051 then ac.setDriverChatNameColor(i, tags.color) end
-    --end
-    loadCars()
+     loadCars()
   end, 5)
 end)
 
@@ -636,6 +634,7 @@ function onShowWindow() --somehow works?
       onlineExtras = ac.INIConfig.onlineExtras()
       teleports1 = loadTeleports(onlineExtras)
     end
+    loadMarkers()
     loadCars()
     if ui.isImageReady(current_map) then
       first = false
