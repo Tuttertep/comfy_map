@@ -37,6 +37,7 @@ local default_colors = stringify{
 
 local defaults = {
   centered = false,
+  centered_zoom = 0.5,
   rotation = true,
   teleporting = true,
   teleporting_mouseover = true,
@@ -51,7 +52,7 @@ local defaults = {
   names_smol_onlyfriends = false,
   names_smol_mouseover = true,
   names_spectate = false,
-  ownnname = false,
+  ownname = false,
   markers = default_colors,
   test = false,
   arrowsize = 20,
@@ -140,7 +141,7 @@ function loadCars()
       index = i,
       name = name,
       isTaggedAsFriend = ac.isTaggedAsFriend(ac.getDriverName(i)),
-      isTraffic = ac.getDriverName(i):find('Traffic'),
+      --isTraffic = ac.getDriverName(i):find('Traffic'),
       isHidingLabels = ac.getCar(i).isHidingLabels,
       isActive = ac.getCar(i).isActive,
     })
@@ -365,13 +366,20 @@ end
 
 function script.windowMainSettings(dt)
   if first then return end
+  ui.pushStyleColor(ui.StyleColor.Text,pink)
   ui.text('made by tuttertep')
+  ui.popStyleColor()
 
   ui.tabBar('TabBar', function()
     ui.tabItem('settings', function() --settings tab
-      if settings.centered then ui.text('middle click map to toggle dragging') end
-      if ui.checkbox("rotate while centered", settings.rotation) then settings.rotation = not settings.rotation end
-      if ui.itemHovered() then ui.setTooltip('middle click map to toggle rotation') end
+      if ui.checkbox("follow player", settings.centered) then settings.centered = not settings.centered end
+      if ui.itemHovered() then ui.setTooltip('middle click map to quickly toggle') end
+      if settings.centered then
+        ui.indent()
+        if ui.checkbox("rotate while following", settings.rotation) then settings.rotation = not settings.rotation end
+        ui.unindent()
+        if ui.itemHovered() then ui.setTooltip('middle click map to toggle rotation') end
+      end
       if ui.checkbox("teleports", settings.teleporting) then settings.teleporting = not settings.teleporting end
       if settings.teleporting then
         ui.indent()
@@ -387,7 +395,7 @@ function script.windowMainSettings(dt)
       end
 
       if ac.isWindowOpen('smol_map') then
-        if ui.checkbox("smol names", settings.names_smol) then settings.names_smol = not settings.names_smol end
+        if ui.checkbox("smol map names", settings.names_smol) then settings.names_smol = not settings.names_smol end
         if settings.names_smol then
           ui.indent()
           if ui.checkbox("mouseover only##names_smol", settings.names_smol_mouseover) then settings.names_smol_mouseover = not settings.names_smol_mouseover end
@@ -395,13 +403,13 @@ function script.windowMainSettings(dt)
         end
       end
       if settings.names_smol or settings.names then
-        settings.names_length = ui.slider('##' .. 'limit length', settings.names_length, 0,20, 'limit length' .. ': %.0f')
+        settings.names_length = ui.slider('##' .. 'limit name length', settings.names_length, 0,20, 'limit length' .. ': %.0f')
         if ui.itemEdited() then loadCars() end
         settings.namesx = ui.slider('##' .. 'name x offset', settings.namesx, -100,100, 'name x offset' .. ': %.0f')
         settings.namesy = ui.slider('##' .. 'name y offset', settings.namesy,-100,100, 'name y offset:' .. ': %.0f')
         namepos:set(settings.namesx, settings.namesy)
         if ui.checkbox("right click name to spectate", settings.names_spectate) then settings.names_spectate = not settings.names_spectate end
-        if ui.checkbox("focused car's name", settings.ownnname) then settings.ownnname = not settings.ownnname end
+        if ui.checkbox("focused car's name", settings.ownname) then settings.ownname = not settings.ownname end
   
       end
       --if ui.checkbox("test", settings.test) then settings.test = not settings.test end
@@ -419,32 +427,38 @@ function script.windowMainSettings(dt)
 
     end)
 
-    ui.tabItem('map markers', function() --arrows tab
-      if version>2051 then
-        if ui.checkbox("turn signals", settings.turn_signals) then settings.turn_signals = not settings.turn_signals end
-      end
+    ui.tabItem('colors&sizes', function() --arrows tab
       if ui.checkbox("arrow size scales with zoom", settings.arrow_scaling) then settings.arrow_scaling = not settings.arrow_scaling end
-      if ui.checkbox("friends", settings.friends) then settings.friends = not settings.friends end
-      if version>2363 then
-        if ui.checkbox("use cm tag colors", settings.tags) then settings.tags = not settings.tags end
-      end
+      --if version>2363 and ui.checkbox("use cm tag colors", settings.tags) then settings.tags = not settings.tags end
 
-      settings.arrowsize = ui.slider('##' .. 'arrow size', settings.arrowsize, 5, 50, 'arrow size' .. ': %.0f')
+      settings.arrowsize = ui.slider('##' .. 'global arrow size', settings.arrowsize, 5, 50, 'arrow size' .. ': %.0f')
 
       local changed = false
+      ui.columns(2,false)
+      ui.nextColumn()
       for i, j in pairs(markers) do
-        ui.setNextItemWidth(100)
-        if j.size~=nil then
-          j.size = ui.slider('##' .. i .. 'size', j.size, 0,2, 'size' .. ': %.2f')
-          if ui.itemEdited() then changed = true end
-          ui.sameLine()
-        end
+        ui.nextColumn()
         ui.colorButton(i,j.color, bit.bor(ui.ColorPickerFlags.AlphaBar, ui.ColorPickerFlags.AlphaPreview, ui.ColorPickerFlags.PickerHueBar))
         if ui.itemEdited() then changed = true end
         ui.sameLine() ui.text(i)
+        ui.nextColumn()
+        if j.size~=nil then
+          ui.setNextItemWidth(120)
+          j.size = ui.slider('##' .. i .. 'size', j.size, 0,2, 'size' .. ': %.2f')
+          if ui.itemEdited() then changed = true end
+        end
+        if i=='friend' then ui.sameLine() if ui.checkbox("##friends", settings.friends) then settings.friends = not settings.friends end end
+        if i=='turn_signals' and version>2051 then ui.sameLine() if ui.checkbox("##turn signals", settings.turn_signals) then settings.turn_signals = not settings.turn_signals end end
+        if i=='map' then
+          ui.setNextItemWidth(120)
+          settings.centered_zoom, changedzoom = ui.slider('##' .. 'default zoom', settings.centered_zoom, 0.1, 2, 'default zoom' .. ': %.1f')
+          if changedzoom then smol_scale = settings.centered_zoom end
+        end
       end
+
       if ui.button('reset markers') then
         markers = stringify.parse(default_colors)
+        settings.centered_zoom = 0.5
         changed = true
       end
       if changed then
@@ -531,8 +545,8 @@ function script.windowMainSettings(dt)
 end
 
 
-local offsets1 = vec2()
-local smol_scale = 0.5
+offsets1 = vec2()
+smol_scale = settings.centered_zoom
 function windowSmol(dt)
   if version < 2000 then ui.text(versionerror) return end
   onShowWindow()
@@ -558,8 +572,8 @@ function windowSmol(dt)
       pos3:set(rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position)
       dir3:set(rotation:transformPoint(car.look))
       pos2:set(pos3.x, pos3.z):add(config_offset):scale(smol_scale / asd.SCALE_FACTOR):add(-offsets1)
-      dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and smol_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
-      dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and smol_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
+      dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and smol_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size):scale(0.5)
+      dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and smol_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size):scale(0.5)
       drawArrow(car, j.color)
       if settings.names_smol and (not settings.names_smol_mouseover or ui.windowHovered()) then drawName(j) end
     end
@@ -570,7 +584,7 @@ function shouldDrawCar(car) return car.isConnected and (not car.isHidingLabels) 
 
 
 function drawName(car)
-  if car.index==ac.getSim().focusedCar and not settings.ownnname then return end
+  if car.index==ac.getSim().focusedCar and not settings.ownname then return end
   ui.pushFont(ui.Font.Small)
   ui.setCursor(pos2 + namepos - ui.measureText(car.name) * 0.5)
   ui.drawLine(pos2, pos2 + namepos , car.color, 2)
@@ -626,7 +640,7 @@ function onShowWindow() --somehow works?
     ui.text('map file loading or missing')
     image_size = ui.imageSize(map) ~= vec2() and ui.imageSize(map) or vec2(asd.WIDTH,asd.HEIGHT)
     map_scale = math.min((ui.windowWidth() - padding.x) / image_size.x, (ui.windowHeight() - padding.y) / image_size.y)
-    if settings.centered then map_scale = 0.5 end
+    if settings.centered then map_scale = smol_scale end
     config_scale = map_scale / asd.SCALE_FACTOR
     size = image_size * map_scale
 
@@ -636,9 +650,7 @@ function onShowWindow() --somehow works?
     end
     loadMarkers()
     loadCars()
-    if ui.isImageReady(current_map) then
-      first = false
-    end
+    if ui.isImageReady(current_map) then first = false end
   end
 end
 
