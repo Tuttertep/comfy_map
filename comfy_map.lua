@@ -1,3 +1,4 @@
+---@diagnostic disable: undefined-global, undefined-field, missing-parameter, need-check-nil, missing-return, param-type-mismatch, lowercase-global, redundant-value, cast-local-type,duplicate-set-field
 --made by tuttertep
 --i'm already sorry if you read this because everything below is a disaster 😭
 
@@ -41,6 +42,7 @@ local defaults = {
   teleporting = true,
   teleporting_mouseover = true,
   new_teleports = false,
+  teleport_warning = true,
   friends = true,
   namesx = 0,
   namesy = 0,
@@ -118,11 +120,6 @@ function getPlayerColor(i)
   if i == focusedCar.index then return markers.you.color, markers.you.size end
   if i==asd1 and i>0 then return pink,markers.friend.size end
   if settings.friends and ac.isTaggedAsFriend(ac.getDriverName(i)) then return markers.friend.color, markers.friend.size end
-  if version>2363 and settings.tags then
-    local tags = ac.getDriverTags(i)
-    if tags.color == rgbm.colors.white then return markers.player.color,markers.player.size end
-    return tags.color, markers.friend.size
-  end
   return markers.player.color,markers.player.size
 end
 
@@ -138,12 +135,8 @@ function loadCars()
   cars = {}
   asd1 = nil
   for i=0, ac.getSim().carsCount-1 do
-    local name = clampName(i)
     asd2(i)
-    table.insert(cars,{
-      index = i,
-      name = name,
-    })
+    table.insert(cars,{index = i,name = "",})
   end
   table.sort(cars, function (a,b)
     if a.index == 0 then return false end
@@ -260,12 +253,9 @@ function script.windowMain(dt)
         local distance = owncar.position:distance(teleport_position) < 6
         if distance then
           color = rgbm.colors.gray
-          if owncar.speedKmh<20 then
+          if owncar.speedKmh<20 and settings.teleport_warning then
             ac.setSystemMessage('please move from teleport','you are blocking a teleport')
           end
-          --ui.pushStyleColor(ui.StyleColor.Text,rgbm.colors.red) ui.pushFont(ui.Font.Title) ui.beginOutline()
-          --ui.text('move from teleport')
-          --ui.popStyleColor() ui.popFont() ui.endOutline(rgbm.colors.black)
         end
 
 
@@ -374,6 +364,7 @@ function script.windowMainSettings(dt)
         ui.indent()
         if ui.checkbox("mouseover only##teleporting", settings.teleporting_mouseover) then settings.teleporting_mouseover = not settings.teleporting_mouseover end
         if ui.checkbox("rounded icons", settings.new_teleports) then settings.new_teleports = not settings.new_teleports end
+        if ui.checkbox("warning when blocking a teleport", settings.teleport_warning) then settings.teleport_warning = not settings.teleport_warning end
         ui.unindent()
       end
 
@@ -449,9 +440,7 @@ function script.windowMainSettings(dt)
       end
       if changed then
         saveMarkers(markers)
-        --loadCars()
       end
-  
     end)
 
 
@@ -615,11 +604,11 @@ function drawArrow(car,color)
 end
 
 
-ac.onClientConnected( function(i, j) --tags
+ac.onClientConnected( function(i, j)
   if version>2051 then ac.setDriverChatNameColor(i, nil) end
-  if ac.isWindowOpen('main') or ac.isWindowOpen('smol_map') then
+  --if ac.isWindowOpen('main') or ac.isWindowOpen('smol_map') then
     setTimeout(function () loadCars() end, 5)
-  end
+  --end
 end)
 
 
