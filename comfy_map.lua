@@ -10,7 +10,7 @@ local default_colors = stringify{
     size = 1,
   },
   friend = {
-    color = rgbm(0,0,0.5,0.9),
+    color = rgbm(0,0.8,1,0.9),
     size = 1,
   },
   player = {
@@ -42,27 +42,24 @@ local defaults = {
   rotation = true,
   teleporting = true,
   teleporting_mouseover = true,
-  new_teleports = false,
+  new_teleports = true,
   teleport_warning = true,
   friends = true,
   namesx = 0,
-  namesy = 0,
+  namesy = 10,
   names = true,
   names_length = 6,
   names_smol = true,
   names_mouseover = true,
-  names_onlyfriends = false,
-  names_smol_onlyfriends = false,
-  names_smol_mouseover = true,
-  names_spectate = false,
+  names_smol_mouseover = false,
+  names_spectate = true,
   ownname = false,
   markers = default_colors,
-  test = false,
-  arrowsize = 20,
+  arrowsize = 13,
   arrowsize_smol = 10,
-  arrow_scaling = false,
+  arrow_scaling = true,
   turn_signals = true,
-  tags = false,
+  tags = true,
 }
 local settings = ac.storage(defaults)
 
@@ -115,18 +112,16 @@ function getPlayerColor(i)
 end
 
 
-
+local margin = vec2(5,6)
+local marginx,marginy = vec2(margin.x,0),vec2(0,margin.y)
 function check(i)
-  --if i==0 then return end
+  if i==0 then return end
   if (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
     asd1 = i
     if version>2051 then ac.setDriverChatNameColor(i,pink) end
     if version>2665 then
       nametag = ui.onDriverNameTag(false,_, function (car)
         if car.index==asd1  then
-          local margin = vec2(5,6)
-          local marginx,marginy = vec2(margin.x,0),vec2(0,margin.y)
-          --ui.drawRectFilled(vec2.tmp():set(0,0),ui.windowSize(),rgbm.colors.black)
           ui.drawRectFilled(vec2.tmp():set(0,0),ui.windowSize(),pink*0.6)
           ui.drawRectFilled(margin,ui.windowSize()-margin,rgbm.colors.black)
           ui.drawQuadFilled(margin,(ui.windowSize())*vec2.tmp():set(0.08,0)+margin,(ui.windowSize()*vec2.tmp():set(0.05,1))+marginx-marginy,(ui.windowSize()*vec2.tmp():set(0,1))+marginx-marginy,pink)
@@ -476,20 +471,10 @@ function script.windowMainSettings(dt)
 
       if ui.button('reset settings') then
         markers = stringify.parse(default_colors)
-        settings.centered_zoom = 0.5
-        settings.arrowsize = 15
-        settings.arrowsize_smol = 8
-        settings.names_length = 6
+        for i,j in pairs(defaults) do
+          settings[i] = j
+        end
         changed = true
-      end
-
-      if ui.button('unload map') then
-        first = true
-        ui.unloadImage(map)
-        ui.unloadImage(map1)
-        ui.unloadImage(current_map)
-        current_map, map, map1 = nil,nil,nil
-        onShowWindow()
       end
 
       if changed then
