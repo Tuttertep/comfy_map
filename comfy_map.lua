@@ -143,6 +143,7 @@ cars = {}
 function loadCars()
   cars = {}
   asd1 = nil
+  if version>2665 and nametag then nametag:dispose() end
   for i=0, ac.getSim().carsCount-1 do
     check(i)
     table.insert(cars,{index = i,name = "",})
