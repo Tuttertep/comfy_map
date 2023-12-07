@@ -331,10 +331,17 @@ function script.windowMain(dt)
     local raycastheight = 3000
     pos3:set(pos2.x, raycastheight, pos2.y)
     local initialray = physics.raycastTrack(pos3,-vec.y,raycastheight*2)
+
+    local normalize3Dto2Dto3D = function (vector)
+      local temp = vec2(vector.x,vector.z):normalize()
+      return vec3(temp.x,0,temp.y)
+    end
+    local carside = normalize3Dto2Dto3D(owncar.side)
+    local carlook = normalize3Dto2Dto3D(owncar.look)
     for i=1, 100 do
       local side = math.random(-owncar.aabbSize.x/2 +owncar.aabbCenter.x,owncar.aabbSize.x/2 +owncar.aabbCenter.x)
       local look = math.random(-owncar.aabbSize.z/2 +owncar.aabbCenter.z,owncar.aabbSize.z/2 +owncar.aabbCenter.z)
-      local pos = pos3 + owncar.look*look + owncar.side*side
+      local pos = pos3 + carlook*look + carside*side
       local raycastnormal = vec3()
       local raycast = physics.raycastTrack(pos, -vec.y, raycastheight*2, _, raycastnormal)
       if raycast == -1 or math.abs(raycast-initialray)>0.1 then allow = false       ui.drawCircleFilled(vec2.tmp():set(pos.x, pos.z):add(config_offset):scale(config_scale):sub(offsets),5,rgbm.colors.red) end
@@ -383,9 +390,8 @@ end
 
 function script.windowMainSettings(dt)
   if first then return end
+  ui.beginOutline()
   ui.textColored('made by tuttertep',pink)
-  --ui.pushStyleColor(ui.StyleColor.Text,pink) ui.text('made by tuttertep') ui.popStyleColor()
-
   ui.tabBar('TabBar', function()
     ui.tabItem('settings', function() --settings tab
       if ui.checkbox("follow player", settings.centered) then settings.centered = not settings.centered end
@@ -432,16 +438,14 @@ function script.windowMainSettings(dt)
 
       if version<2278 then
         ui.text('\nweird teleports lua has access to (maybe void)')
-        for i, j in pairs(ac.SpawnSet) do
-          if ui.button(i) then physics.teleportCarTo(0, j) end ui.sameLine()
-        end
+        for i, j in pairs(ac.SpawnSet) do if ui.button(i) then physics.teleportCarTo(0, j) end ui.sameLine() end
         ui.newLine(20)
       end
     end)
 
     ui.tabItem('colors&sizes', function() --arrows tab
       if ui.checkbox("arrow size scales with zoom", settings.arrow_scaling) then settings.arrow_scaling = not settings.arrow_scaling end
-      if version>=2539 then if ui.checkbox("content manager tags", settings.tags) then settings.tags = not settings.tags end end
+      if version>=2539 and ui.checkbox("content manager tags", settings.tags) then settings.tags = not settings.tags end
       settings.centered_offset = ui.slider('##' .. 'centered_offset', settings.centered_offset, -0.5, 0.5, 'smol map offset' .. ': %.2f')
       if ui.itemEdited() then centered_offset:set(0.5,0.5-settings.centered_offset) end
       settings.arrowsize = ui.slider('##' .. 'arrowsize', settings.arrowsize, 5, 50, 'main map arrow size' .. ': %.0f')
@@ -565,9 +569,8 @@ function script.windowMainSettings(dt)
         if ui.itemHovered() then ui.setTooltip('copy AssettoServer timing checkpoint') end
 
     end)
-
   end)
-
+  ui.endOutline(rgbm.colors.black)
 end
 
 offsets1 = -padding
@@ -659,21 +662,6 @@ function drawArrow(car,color)
   ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
 end
 
-
-ac.onClientConnected( function(i, j) -- reload cars when someone joins to sort friends
-  if version>2051 then ac.setDriverChatNameColor(i, nil) end
-  setTimeout(function () loadCars() end, 5)
-end)
-
-ac.onSessionStart(function (sessionIndex, restarted) --attempt to support server map change
-  first = true
-  ui.unloadImage(map)
-  ui.unloadImage(map1)
-  ui.unloadImage(current_map)
-  current_map, map, map1 = nil,nil,nil
-onShowWindow()
-end)
-
 function onShowWindow() --somehow works?
   if first then
     if version < 2000 then return end
@@ -704,10 +692,23 @@ function onShowWindow() --somehow works?
       end
       loadMarkers()
       loadCars()
-  
     end
   end
 end
+
+ac.onClientConnected( function(i, j) -- reload cars when someone joins to sort friends
+  if version>2051 then ac.setDriverChatNameColor(i, nil) end
+  setTimeout(function () loadCars() end, 5)
+end)
+--ac.onSessionStart(function (sessionIndex, restarted) --attempt to support server map change
+  --first = true
+  --ui.unloadImage(map)
+  --ui.unloadImage(map1)
+  --ui.unloadImage(current_map)
+  --current_map, map, map1 = nil,nil,nil
+  --onShowWindow()
+  loadCars()
+--end)
 
 function saveTeleports(collected_teleports)
   local collected_teleports_string = '[TELEPORT_DESTINATIONS]\n'
