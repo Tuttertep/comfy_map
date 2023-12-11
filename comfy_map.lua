@@ -320,7 +320,6 @@ function script.windowMain(dt)
       pos2 - dir2 - dir2x * 0.75,
       pos2 - dir2 + dir2x * 0.75,
       rgbm.colors.green)
-      --markers.you.color)
     ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   end
 
@@ -700,15 +699,7 @@ ac.onClientConnected( function(i, j) -- reload cars when someone joins to sort f
   if version>2051 then ac.setDriverChatNameColor(i, nil) end
   setTimeout(function () loadCars() end, 5)
 end)
---ac.onSessionStart(function (sessionIndex, restarted) --attempt to support server map change
-  --first = true
-  --ui.unloadImage(map)
-  --ui.unloadImage(map1)
-  --ui.unloadImage(current_map)
-  --current_map, map, map1 = nil,nil,nil
-  --onShowWindow()
-  loadCars()
---end)
+loadCars()
 
 function saveTeleports(collected_teleports)
   local collected_teleports_string = '[TELEPORT_DESTINATIONS]\n'
