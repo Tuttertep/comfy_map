@@ -452,9 +452,7 @@ function script.windowMainSettings(dt)
 
       local changed = false
       ui.columns(2,false)
-      ui.nextColumn()
       for i, j in pairs(markers) do
-        ui.nextColumn()
         ui.colorButton(i,j.color, bit.bor(ui.ColorPickerFlags.AlphaBar, ui.ColorPickerFlags.AlphaPreview, ui.ColorPickerFlags.PickerHueBar))
         if ui.itemEdited() then changed = true end
         ui.sameLine() ui.text(i)
@@ -471,6 +469,7 @@ function script.windowMainSettings(dt)
           settings.centered_zoom, changedzoom = ui.slider('##' .. 'default zoom', settings.centered_zoom, 0.1, 2, 'default zoom' .. ': %.1f')
           if changedzoom then smol_scale = settings.centered_zoom end
         end
+        ui.nextColumn()
       end
 
       if ui.button('reset settings') then
@@ -480,6 +479,7 @@ function script.windowMainSettings(dt)
         end
         changed = true
       end
+      ui.columns(1)
 
       if changed then
         saveMarkers(markers)
@@ -611,7 +611,7 @@ function shouldDrawCar(car) return car.isConnected and (not car.isHidingLabels) 
 
 function clampName(i)
   if settings.names_length>0 and #ac.getDriverName(i)>settings.names_length then
-    local name = ac.getDriverName(i):gsub("[-|]",'')
+    local name = ac.getDriverName(i):gsub("[-|{}]",'')
     return string.sub(name,1,settings.names_length)
   else
     return ac.getDriverName(i)
