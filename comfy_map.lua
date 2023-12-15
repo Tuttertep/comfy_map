@@ -139,6 +139,11 @@ function check(i)
   end
 end
 
+function isTagged(i)
+  local name = ac.getDriverName(i)
+  if version>=2539 then return ac.DriverTags(name).color~=rgbm.colors.white end
+  return ac.isTaggedAsFriend(name)
+end
 cars = {}
 function loadCars()
   cars = {}
@@ -150,9 +155,10 @@ function loadCars()
   end
   table.sort(cars, function (a,b)
     if a.index*b.index==0 then return b.index==0 end
-    if ac.isTaggedAsFriend(ac.getDriverName(a.index)) then return false end
-    if ac.isTaggedAsFriend(ac.getDriverName(b.index)) then return true end
+    if isTagged(a.index) then return false end
+    if isTagged(b.index) then return true end
   end)
+  --table.reverse(cars)
 end
 
 
