@@ -148,7 +148,7 @@ cars = {}
 function loadCars()
   cars = {}
   asd1 = nil
-  if version>2665 and nametag then nametag:dispose() end
+  --if version>2665 and nametag then nametag:dispose() end
   for i=0, ac.getSim().carsCount-1 do
     check(i)
     table.insert(cars,{index = i,name = "",})
@@ -349,13 +349,14 @@ function script.windowMain(dt)
       local pos = pos3 + carlook*look + carside*side
       local raycastnormal = vec3()
       local raycast = physics.raycastTrack(pos, -vec.y, raycastheight*2, _, raycastnormal)
-      if raycast == -1 or math.abs(raycast-initialray)>0.1 then allow = false       ui.drawCircleFilled(vec2.tmp():set(pos.x, pos.z):add(config_offset):scale(config_scale):sub(offsets),5,rgbm.colors.red) end
+      if raycast == -1 or math.abs(raycast-initialray)>0.2 then allow = false
+        ui.drawCircleFilled(vec2.tmp():set(pos.x, pos.z):add(config_offset):scale(config_scale):sub(offsets),5,rgbm.colors.red)
+      end
     end
     pos3:set(pos2.x, raycastheight-initialray+3, pos2.y)
 
     if allow then
       if ac.getSim().cameraMode == ac.CameraMode.Free then --freecam stuff
-        ac.setCurrentCamera(ac.CameraMode.Free)
         ac.setCameraPosition(pos3)
       elseif owncar.physicsAvailable then
         physics.setCarPosition(0,pos3,-owncar.look)
