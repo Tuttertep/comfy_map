@@ -115,7 +115,7 @@ end
 local margin = vec2(5,6)
 local marginx,marginy = vec2(margin.x,0),vec2(0,margin.y)
 function check(i)
-  if i==0 then return end
+  --if i==0 then return end
   if (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
     asd1 = i
     if version>2051 then ac.setDriverChatNameColor(i,pink) end
@@ -139,20 +139,26 @@ function check(i)
   end
 end
 
+function isTagged(i)
+  local name = ac.getDriverName(i)
+  if version>=2539 then return ac.DriverTags(name).color~=rgbm.colors.white end
+  return ac.isTaggedAsFriend(name)
+end
 cars = {}
 function loadCars()
   cars = {}
   asd1 = nil
-  if version>2665 and nametag then nametag:dispose() end
+  if version>2665 and nametag then nametag() end
   for i=0, ac.getSim().carsCount-1 do
     check(i)
     table.insert(cars,{index = i,name = "",})
   end
   table.sort(cars, function (a,b)
     if a.index*b.index==0 then return b.index==0 end
-    if ac.isTaggedAsFriend(ac.getDriverName(a.index)) then return false end
-    if ac.isTaggedAsFriend(ac.getDriverName(b.index)) then return true end
+    if isTagged(a.index) then return false end
+    if isTagged(b.index) then return true end
   end)
+  --table.reverse(cars)
 end
 
 
@@ -297,7 +303,7 @@ function script.windowMain(dt)
         end
 
         if ui.itemHovered() then ui.setTooltip(teleport_name) hoveringTeleport = true end
-        if ui.itemClicked(ui.MouseButton.Right) then ac.sendChatMessage("Teleport to: " .. teleport_name) end
+        if ui.itemClicked(ui.MouseButton.Right) then ac.sendChatMessage("(comfy map) Teleport to: " .. teleport_name) end
       end
       if calledTeleport~=nil then ac.teleportToServerPoint(calledTeleport) end
     end
@@ -343,13 +349,14 @@ function script.windowMain(dt)
       local pos = pos3 + carlook*look + carside*side
       local raycastnormal = vec3()
       local raycast = physics.raycastTrack(pos, -vec.y, raycastheight*2, _, raycastnormal)
-      if raycast == -1 or math.abs(raycast-initialray)>0.1 then allow = false       ui.drawCircleFilled(vec2.tmp():set(pos.x, pos.z):add(config_offset):scale(config_scale):sub(offsets),5,rgbm.colors.red) end
+      if raycast == -1 or math.abs(raycast-initialray)>0.2 then allow = false
+        ui.drawCircleFilled(vec2.tmp():set(pos.x, pos.z):add(config_offset):scale(config_scale):sub(offsets),5,rgbm.colors.red)
+      end
     end
     pos3:set(pos2.x, raycastheight-initialray+3, pos2.y)
 
     if allow then
       if ac.getSim().cameraMode == ac.CameraMode.Free then --freecam stuff
-        ac.setCurrentCamera(ac.CameraMode.Free)
         ac.setCameraPosition(pos3)
       elseif owncar.physicsAvailable then
         physics.setCarPosition(0,pos3,-owncar.look)
@@ -452,9 +459,7 @@ function script.windowMainSettings(dt)
 
       local changed = false
       ui.columns(2,false)
-      ui.nextColumn()
       for i, j in pairs(markers) do
-        ui.nextColumn()
         ui.colorButton(i,j.color, bit.bor(ui.ColorPickerFlags.AlphaBar, ui.ColorPickerFlags.AlphaPreview, ui.ColorPickerFlags.PickerHueBar))
         if ui.itemEdited() then changed = true end
         ui.sameLine() ui.text(i)
@@ -471,6 +476,7 @@ function script.windowMainSettings(dt)
           settings.centered_zoom, changedzoom = ui.slider('##' .. 'default zoom', settings.centered_zoom, 0.1, 2, 'default zoom' .. ': %.1f')
           if changedzoom then smol_scale = settings.centered_zoom end
         end
+        ui.nextColumn()
       end
 
       if ui.button('reset settings') then
@@ -480,6 +486,7 @@ function script.windowMainSettings(dt)
         end
         changed = true
       end
+      ui.columns(1)
 
       if changed then
         saveMarkers(markers)
@@ -611,7 +618,7 @@ function shouldDrawCar(car) return car.isConnected and (not car.isHidingLabels) 
 
 function clampName(i)
   if settings.names_length>0 and #ac.getDriverName(i)>settings.names_length then
-    local name = ac.getDriverName(i):gsub("[-|]",'')
+    local name = ac.getDriverName(i):gsub("[-|{}]",'')
     return string.sub(name,1,settings.names_length)
   else
     return ac.getDriverName(i)
