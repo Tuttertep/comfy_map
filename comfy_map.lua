@@ -115,7 +115,7 @@ end
 local margin = vec2(5,6)
 local marginx,marginy = vec2(margin.x,0),vec2(0,margin.y)
 function check(i)
-  if i==0 then return end
+  --if i==0 then return end
   if (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
     asd1 = i
     if version>2051 then ac.setDriverChatNameColor(i,pink) end
@@ -148,7 +148,7 @@ cars = {}
 function loadCars()
   cars = {}
   asd1 = nil
-  --if version>2665 and nametag then nametag:dispose() end
+  if version>2665 and nametag then nametag() end
   for i=0, ac.getSim().carsCount-1 do
     check(i)
     table.insert(cars,{index = i,name = "",})
@@ -303,7 +303,7 @@ function script.windowMain(dt)
         end
 
         if ui.itemHovered() then ui.setTooltip(teleport_name) hoveringTeleport = true end
-        if ui.itemClicked(ui.MouseButton.Right) then ac.sendChatMessage("Teleport to: " .. teleport_name) end
+        if ui.itemClicked(ui.MouseButton.Right) then ac.sendChatMessage("(comfy map) Teleport to: " .. teleport_name) end
       end
       if calledTeleport~=nil then ac.teleportToServerPoint(calledTeleport) end
     end
