@@ -116,6 +116,7 @@ local margin = vec2(5,6)
 local marginx,marginy = vec2(margin.x,0),vec2(0,margin.y)
 function check(i)
   if i==0 then return end
+  if version>=2539 and ac.DriverTags(ac.getDriverName(i)).color==pink then ac.setDriverChatNameColor(i,nil) end
   if (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
     asd1 = i
     if version>2051 then ac.setDriverChatNameColor(i,pink) end
@@ -158,7 +159,6 @@ function loadCars()
     if isTagged(a.index) then return false end
     if isTagged(b.index) then return true end
   end)
-  --table.reverse(cars)
 end
 
 
@@ -709,7 +709,7 @@ ac.onClientConnected( function(i, j) -- reload cars when someone joins to sort f
   if version>2051 then ac.setDriverChatNameColor(i, nil) end
   setTimeout(function () loadCars() end, 5)
 end)
-loadCars()
+setTimeout(function () loadCars() end, 5)
 
 function saveTeleports(collected_teleports)
   local collected_teleports_string = '[TELEPORT_DESTINATIONS]\n'
