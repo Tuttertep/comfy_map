@@ -78,7 +78,7 @@ function saveMarkers(m)
   loadCars()
 end
 settings.centered_offset = 0
-local owncar, focusedCar = ac.getCar(0), ac.getCar(0)
+local owncar, focusedCar, sim = ac.getCar(0), ac.getCar(0), ac.getSim()
 local first = true
 local versionerror = "requires csp version 1.78 or newer (this message is displayed when the version id is below 2000)"
 local version = ac.getPatchVersionCode()
@@ -115,7 +115,7 @@ end
 local margin = vec2(5,6)
 local marginx,marginy = vec2(margin.x,0),vec2(0,margin.y)
 function check(i)
-  --if i==0 then return end
+  if i==0 then return end
   if (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
     asd1 = i
     if version>2051 then ac.setDriverChatNameColor(i,pink) end
@@ -149,7 +149,7 @@ function loadCars()
   cars = {}
   asd1 = nil
   if version>2665 and nametag then nametag() end
-  for i=0, ac.getSim().carsCount-1 do
+  for i=0, sim.carsCount-1 do
     check(i)
     table.insert(cars,{index = i,name = "",})
   end
@@ -203,7 +203,7 @@ function script.windowMain(dt)
     end
   end
 
-  focusedCar = ac.getCar(ac.getSim().focusedCar)
+  focusedCar = ac.getCar(sim.focusedCar)
 
   if settings.centered then --center on car and rotate
     offsets:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(config_scale):add(-ui.windowSize()*centered_offset) --autocenter
@@ -263,7 +263,7 @@ function script.windowMain(dt)
       if ui.itemClicked(ui.MouseButton.Right) then table.remove(collected_teleports, i) end
     end
 
-    if (ac.getSim().isOnlineRace) then --online teleports
+    if (sim.isOnlineRace) then --online teleports
       calledTeleport = nil
       calledTeleportAng = 360
       for i,j in pairs(teleports1) do
@@ -287,7 +287,7 @@ function script.windowMain(dt)
         if ui.itemClicked(ui.MouseButton.Left) and ac.canTeleportToServerPoint(j.INDEX) then --if multiple point overlap, try to guess intended one
             if not calledTeleport then calledTeleport = j.INDEX end --this feature is peak gremlin
             local closest = {distance = 1000000, car = ac.getCar(0)}
-            for k = 1, ac.getSim().carsCount - 1 do
+            for k = 1, sim.carsCount - 1 do
               local car = ac.getCar(k)
               if shouldDrawCar(car) then
                 local distance = car.position:distance(teleport_position)
@@ -311,7 +311,7 @@ function script.windowMain(dt)
   end
 
 
-  if ac.getSim().cameraMode == ac.CameraMode.Free then
+  if sim.cameraMode == ac.CameraMode.Free then
     pos3 = ac.getCameraPosition()
     dir3 = ac.getCameraForward()
     if settings.centered and settings.rotation then
@@ -356,7 +356,7 @@ function script.windowMain(dt)
     pos3:set(pos2.x, raycastheight-initialray+3, pos2.y)
 
     if allow then
-      if ac.getSim().cameraMode == ac.CameraMode.Free then --freecam stuff
+      if sim.cameraMode == ac.CameraMode.Free then --freecam stuff
         ac.setCameraPosition(pos3)
       elseif owncar.physicsAvailable then
         physics.setCarPosition(0,pos3,-owncar.look)
@@ -495,14 +495,14 @@ function script.windowMainSettings(dt)
 
 
     ui.tabItem('teleport config helper', function() --teleport tab
-      if ac.getSim().cameraMode == ac.CameraMode.Free then --button to return to car because pressing f1 is annoying 
+      if sim.cameraMode == ac.CameraMode.Free then --button to return to car because pressing f1 is annoying 
         if ui.button('return camera to car') then ac.setCurrentCamera(ac.CameraMode.Cockpit) end
       end
 
       if ui.button('save point') then --group logic coming at some point maybe
-        local pos3 = ac.getCar(ac.getSim().focusedCar).position
-        local dir3 = ac.getCar(ac.getSim().focusedCar).look
-        if ac.getSim().cameraMode == ac.CameraMode.Free then
+        local pos3 = ac.getCar(sim.focusedCar).position
+        local dir3 = ac.getCar(sim.focusedCar).look
+        if sim.cameraMode == ac.CameraMode.Free then
           pos3 = ac.getCameraPosition()
           dir3 = ac.getCameraForward()
         end
@@ -520,9 +520,9 @@ function script.windowMainSettings(dt)
       ui.sameLine() ui.pushStyleColor(ui.StyleColor.Button, rgbm.colors.teal) if ui.button('copy points') then ui.setClipboardText(saveTeleports(collected_teleports)) end ui.popStyleColor()
       ui.sameLine() ui.pushStyleColor(ui.StyleColor.Button, rgbm.colors.maroon) if ui.button('delete all') then collected_teleports = {} end ui.popStyleColor()
       ui.sameLine() ui.pushStyleColor(ui.StyleColor.Button, rgbm.colors.olive) if ui.button('copy position') then
-        local pos3 = ac.getCar(ac.getSim().focusedCar).position
-        local dir3 = ac.getCar(ac.getSim().focusedCar).look
-        if ac.getSim().cameraMode == ac.CameraMode.Free then
+        local pos3 = ac.getCar(sim.focusedCar).position
+        local dir3 = ac.getCar(sim.focusedCar).look
+        if sim.cameraMode == ac.CameraMode.Free then
           pos3 = ac.getCameraPosition()
           dir3 = ac.getCameraForward()
         end
@@ -588,7 +588,7 @@ function windowSmol(dt)
 
   ui.invisibleButton()
   if ui.windowHovered() and ui.mouseWheel() then smol_scale = smol_scale * (1 + 0.1 * ui.mouseWheel()) end
-  focusedCar = ac.getCar(ac.getSim().focusedCar)
+  focusedCar = ac.getCar(sim.focusedCar)
   offsets1:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(smol_scale / config.SCALE_FACTOR):add(-ui.windowSize()*centered_offset) --autocenter
 
   rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
@@ -614,7 +614,10 @@ function windowSmol(dt)
   end
 end
 
-function shouldDrawCar(car) return car.isConnected and (not car.isHidingLabels) and car.isActive end
+function shouldDrawCar(car)
+  if sim.isReplayOnlyMode then return not (ac.getDriverName(car.index):find('Robo') or ac.getDriverName(car.index):find('Traffic')) or ac.getDriverName(car.index):find('Bot') end
+  return car.isConnected and (not car.isHidingLabels) and car.isActive
+end
 
 function clampName(i)
   if settings.names_length>0 and #ac.getDriverName(i)>settings.names_length then
@@ -627,7 +630,7 @@ end
 
 function drawName(car)
   if car.name=='' then car.name = clampName(car.index) end
-  if car.index==ac.getSim().focusedCar and not settings.ownname then return end
+  if car.index==sim.focusedCar and not settings.ownname then return end
   ui.pushFont(ui.Font.Small)
   ui.setCursor(pos2 + namepos - ui.measureText(car.name) * 0.5)
   ui.drawLine(pos2, pos2 + namepos , car.color, 2)
@@ -645,7 +648,7 @@ function drawArrow(car,color)
     pos2 - dir2 - dir2x * 0.75, --right
     pos2 - dir2 + dir2x * 0.75, --left
   color)
-  if settings.turn_signals and version>2051 then --and not ac.getSim().isReplayOnlyMode then
+  if version>2051 and settings.turn_signals then --and not sim.isReplayOnlyMode then
     if car.turningLightsActivePhase then
       dir2:scale(markers.turn_signals.size)
       dir2x:scale(markers.turn_signals.size)
@@ -692,7 +695,7 @@ function onShowWindow() --somehow works?
       end
       centered_offset = vec2(0.5,0.5-settings.centered_offset)
       namepos = vec2(settings.namesx, settings.namesy)
-      if ac.getSim().isOnlineRace then --teleport config
+      if sim.isOnlineRace then --teleport config
         onlineExtras = ac.INIConfig.onlineExtras()
         teleports1 = loadTeleports(onlineExtras)
       end
