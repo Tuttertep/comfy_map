@@ -119,7 +119,6 @@ function check(i)
   if version>=2539 and ac.DriverTags(ac.getDriverName(i)).color==pink then ac.setDriverChatNameColor(i,nil) end
   if (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
     asd1 = i
-    if version>2051 then ac.setDriverChatNameColor(i,pink) end
     if version>2665 then
       nametag = ui.onDriverNameTag(false,_, function (car)
         if car.index==asd1  then
@@ -706,7 +705,6 @@ function onShowWindow() --somehow works?
 end
 
 ac.onClientConnected( function(i, j) -- reload cars when someone joins to sort friends
-  if version>2051 then ac.setDriverChatNameColor(i, nil) end
   setTimeout(function () loadCars() end, 5)
 end)
 setTimeout(function () loadCars() end, 5)
