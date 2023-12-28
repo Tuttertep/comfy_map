@@ -99,27 +99,26 @@ local hoveringTeleport = false
 local pink = rgbm(1,175/255,1,1)
 function getPlayerColor(i)
   if i==asd1 then
-    if version>2051 then ac.setDriverChatNameColor(i,pink) end
+    if ac.setDriverChatNameColor then ac.setDriverChatNameColor(i,pink) end
     return pink,markers.friend.size
   end
   if i == focusedCar.index then return markers.you.color, markers.you.size end
   if settings.friends and ac.isTaggedAsFriend(ac.getDriverName(i)) then return markers.friend.color, markers.friend.size end
-  if version>=2539 and settings.tags then
+  if ac.DriverTags and settings.tags then
     local tags = ac.DriverTags(ac.getDriverName(i))
     if tags.color~=rgbm.colors.white then return tags.color, markers.friend.size end
   end
   return markers.player.color,markers.player.size
 end
 
-
 local margin = vec2(5,6)
 local marginx,marginy = vec2(margin.x,0),vec2(0,margin.y)
 function check(i)
   if i==0 then return end
-  if version>=2539 and ac.DriverTags(ac.getDriverName(i)).color==pink then ac.setDriverChatNameColor(i,nil) end
+  if ac.DriverTags and ac.DriverTags(ac.getDriverName(i)).color==pink then ac.setDriverChatNameColor(i,nil) end
   if (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
     asd1 = i
-    if version>2665 then
+    if ui.onDriverNameTag then
       nametag = ui.onDriverNameTag(false,_, function (car)
         if car.index==asd1  then
           ui.drawRectFilled(vec2.tmp():set(0,0),ui.windowSize(),pink*0.6)
@@ -139,19 +138,45 @@ function check(i)
   end
 end
 
+function safetyRating(carIndex)
+  if (not safetyratings) or (not safetyratings[ac.getDriverName(carIndex)]) then return '' end
+  return 'safety rating: ' .. math.round(safetyratings[ac.getDriverName(carIndex)].Rating,2)
+end
+
+function fetchRatings()
+  if not sim.isOnlineRace then return end
+  local url = "http://" .. ac.getServerIP() .. ":" .. ac.getServerPortHTTP() .. "/safetyrating"
+  --local url = "http://5.161.43.117:8081/safetyrating"
+    web.get(url, function(err, response)
+      local ratings = stringify.parse(response.body)
+      if response.status ~= 200 then return end
+      safetyratings = {}
+      for i,rating in pairs(ratings) do
+        safetyratings[rating.Name] = rating
+      end
+    end)
+  if ui.onDriverTooltip then
+    if tooltip then tooltip() end
+    tooltip = ui.onDriverTooltip(function (carIndex)
+      ui.text(safetyRating(carIndex))
+    end)
+  end
+end
+
 function isTagged(i)
   local name = ac.getDriverName(i)
-  if version>=2539 then return ac.DriverTags(name).color~=rgbm.colors.white end
+  if ac.DriverTags then return ac.DriverTags(name).color~=rgbm.colors.white end
   return ac.isTaggedAsFriend(name)
 end
 cars = {}
 function loadCars()
+  fetchRatings()
   cars = {}
   asd1 = nil
-  if version>2665 and nametag then nametag() end
+  if nametag then nametag() end
   for i=0, sim.carsCount-1 do
     check(i)
-    table.insert(cars,{index = i,name = "",})
+    table.insert(cars,{index = i,name = "",pos2=vec2()})
   end
   table.sort(cars, function (a,b)
     if a.index*b.index==0 then return b.index==0 end
@@ -223,7 +248,7 @@ function script.windowMain(dt)
 
   for i,j in pairs(cars) do
     local car = ac.getCar(j.index)
-    if shouldDrawCar(car) then
+    if shouldDrawCar(j.index) then
       j.color, j.size = getPlayerColor(j.index)
       pos3:set(car.position)
       dir3:set(car.look)
@@ -236,11 +261,16 @@ function script.windowMain(dt)
       dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and map_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
       --for k=0,3 do ui.drawCircleFilled(vec2.tmp():set(owncar.wheels[k].position.x,owncar.wheels[k].position.z):add(config_offset):scale(config_scale):sub(offsets),5,rgbm.colors.red) end
       drawArrow(car,j.color)
-      if settings.names and (not settings.names_mouseover or windowHovered) then
-          drawName(j)
-      end
+      j.pos2:set(pos2.x,pos2.y)
+
     end
   end
+  for i,j in pairs(cars) do
+    if shouldDrawCar(j.index) then
+      if settings.names and (not settings.names_mouseover or windowHovered) then drawName(j) end
+    end
+  end
+
 
   if settings.teleporting and (not settings.teleporting_mouseover or windowHovered) then --teleports
 
@@ -288,7 +318,7 @@ function script.windowMain(dt)
             local closest = {distance = 1000000, car = ac.getCar(0)}
             for k = 1, sim.carsCount - 1 do
               local car = ac.getCar(k)
-              if shouldDrawCar(car) then
+              if shouldDrawCar(k) then
                 local distance = car.position:distance(teleport_position)
                 if distance < closest.distance then
                   closest['car'] = car closest['distance']  = distance
@@ -398,6 +428,21 @@ function script.windowMainSettings(dt)
   ui.beginOutline()
   ui.textColored('made by tuttertep',pink)
   ui.tabBar('TabBar', function()
+
+    if safetyratings then
+      ui.tabItem('safety ratings', function ()
+        ui.columns(2,false)
+        for name,rating in pairs(safetyratings) do
+          local color = hsv(240+(1-rating.Rating)*20,0.9,0.9):rgb()
+          ui.textColored(name,color)
+          ui.nextColumn()
+          ui.textColored(math.round(rating.Rating,2),color)
+          ui.nextColumn()
+        end
+        ui.columns(1)
+      end)
+    end
+
     ui.tabItem('settings', function() --settings tab
       if ui.checkbox("follow player", settings.centered) then settings.centered = not settings.centered end
       if ui.itemHovered() then ui.setTooltip('middle click map to quickly toggle') end
@@ -450,7 +495,7 @@ function script.windowMainSettings(dt)
 
     ui.tabItem('colors&sizes', function() --arrows tab
       if ui.checkbox("arrow size scales with zoom", settings.arrow_scaling) then settings.arrow_scaling = not settings.arrow_scaling end
-      if version>=2539 and ui.checkbox("content manager tags", settings.tags) then settings.tags = not settings.tags end
+      if ac.DriverTags and ui.checkbox("content manager tags", settings.tags) then settings.tags = not settings.tags end
       settings.centered_offset = ui.slider('##' .. 'centered_offset', settings.centered_offset, -0.5, 0.5, 'smol map offset' .. ': %.2f')
       if ui.itemEdited() then centered_offset:set(0.5,0.5-settings.centered_offset) end
       settings.arrowsize = ui.slider('##' .. 'arrowsize', settings.arrowsize, 5, 50, 'main map arrow size' .. ': %.0f')
@@ -600,7 +645,7 @@ function windowSmol(dt)
 
   for i,j in pairs(cars) do  --draw stuff on small map
     local car = ac.getCar(j.index)
-    if shouldDrawCar(car) then
+    if shouldDrawCar(j.index) then
       j.color, j.size = getPlayerColor(j.index)
       pos3:set(rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position)
       dir3:set(rotation:transformPoint(car.look))
@@ -608,13 +653,19 @@ function windowSmol(dt)
       dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and smol_scale^0.3 or 1):scale(settings.arrowsize_smol):scale(j.size)
       dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and smol_scale^0.3 or 1):scale(settings.arrowsize_smol):scale(j.size)
       drawArrow(car, j.color)
+      j.pos2:set(pos2.x,pos2.y)
+    end
+  end
+  for i,j in pairs(cars) do
+    if shouldDrawCar(j.index) then
       if settings.names_smol and (not settings.names_smol_mouseover or ui.windowHovered()) then drawName(j) end
     end
   end
 end
 
-function shouldDrawCar(car)
-  if sim.isReplayOnlyMode then return not (ac.getDriverName(car.index):find('Robo') or ac.getDriverName(car.index):find('Traffic')) or ac.getDriverName(car.index):find('Bot') end
+function shouldDrawCar(index)
+  local car = ac.getCar(index)
+  if sim.isReplayOnlyMode and ((ac.getDriverName(car.index):find('Robo') or ac.getDriverName(car.index):find('Traffic')) or ac.getDriverName(car.index):find('Bot')) then return false end
   return car.isConnected and (not car.isHidingLabels) and car.isActive
 end
 
@@ -631,11 +682,14 @@ function drawName(car)
   if car.name=='' then car.name = clampName(car.index) end
   if car.index==sim.focusedCar and not settings.ownname then return end
   ui.pushFont(ui.Font.Small)
-  ui.setCursor(pos2 + namepos - ui.measureText(car.name) * 0.5)
-  ui.drawLine(pos2, pos2 + namepos , car.color, 2)
+  ui.setCursor(car.pos2 + namepos - ui.measureText(car.name) * 0.5)
+  --ui.drawLine(car.pos2, car.pos2 + namepos , car.color, 2)
   ui.beginOutline()
   ui.text(car.name)
-  if ui.itemHovered() then ui.setTooltip(ac.getDriverName(car.index) .. '\n' .. ac.getCarID(car.index)) end
+  if ui.itemHovered() then ui.setTooltip(ac.getDriverName(car.index)
+                              .. '\n' .. ac.getCarID(car.index)
+                              .. '\n' .. safetyRating(car.index)
+                            ) end
   ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   ui.popFont()
   if ui.itemClicked(1) and not hoveringTeleport and settings.names_spectate then ac.focusCar(car.index) end
@@ -705,7 +759,9 @@ function onShowWindow() --somehow works?
 end
 
 ac.onClientConnected( function(i, j) -- reload cars when someone joins to sort friends
-  setTimeout(function () loadCars() end, 5)
+  setTimeout(function ()
+    if ac.setDriverChatNameColor then ac.setDriverChatNameColor(i,nil) end
+    loadCars() end, 5)
 end)
 setTimeout(function () loadCars() end, 5)
 
