@@ -37,6 +37,7 @@ local default_colors = stringify{
 
 local defaults = {
   centered = false,
+  alwaysAllowMapInteraction = false,
   centered_zoom = 0.5,
   centered_offset = 0,
   rotation = true,
@@ -183,7 +184,7 @@ function script.windowMain(dt)
   ui.pushClipRect(0, ui.windowSize()) --background
   ui.invisibleButton()
 
-  if windowHovered then --zoom&drag&centering&reset
+  if windowHovered or settings.alwaysAllowMapInteraction then --zoom&drag&centering&reset
     if ac.getUI().mouseWheel ~= 0 then
       if (ac.getUI().mouseWheel < 0 and (size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
         local old = size
@@ -207,7 +208,6 @@ function script.windowMain(dt)
 
   if settings.centered then --center on car and rotate
     offsets:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(config_scale):add(-ui.windowSize()*centered_offset) --autocenter
-
     if settings.rotation then
       rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
       rotation = mat4x4.rotation(math.rad(rotationangle), vec.y)
@@ -408,6 +408,8 @@ function script.windowMainSettings(dt)
         ui.unindent()
         if ui.itemHovered() then ui.setTooltip('middle click map to toggle rotation') end
       end
+      if ui.checkbox("Control map at any time", settings.alwaysAllowMapInteraction) then settings.alwaysAllowMapInteraction = not settings.alwaysAllowMapInteraction end
+      if ui.itemHovered() then ui.setTooltip('Allow for middle click and scrollwheel to control the map even when not hovering the mouse over it. Good for using with wheel bindings') end
       if ui.checkbox("teleports", settings.teleporting) then settings.teleporting = not settings.teleporting end
       if settings.teleporting then
         ui.indent()
