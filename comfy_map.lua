@@ -37,7 +37,9 @@ local default_colors = stringify{
 
 local defaults = {
   centered = false,
-  alwaysAllowMapInteraction = false,
+  always_allow_map_interaction = false,
+  always_allow_beeg_interaction = false,
+  always_allow_smol_interaction = false,
   centered_zoom = 0.5,
   centered_offset = 0,
   rotation = true,
@@ -184,7 +186,7 @@ function script.windowMain(dt)
   ui.pushClipRect(0, ui.windowSize()) --background
   ui.invisibleButton()
 
-  if windowHovered or settings.alwaysAllowMapInteraction then --zoom&drag&centering&reset
+  if windowHovered or (settings.always_allow_beeg_interaction and settings.always_allow_map_interaction) then --zoom&drag&centering&reset
     if ac.getUI().mouseWheel ~= 0 then
       if (ac.getUI().mouseWheel < 0 and (size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
         local old = size
@@ -408,8 +410,14 @@ function script.windowMainSettings(dt)
         ui.unindent()
         if ui.itemHovered() then ui.setTooltip('middle click map to toggle rotation') end
       end
-      if ui.checkbox("Control map at any time", settings.alwaysAllowMapInteraction) then settings.alwaysAllowMapInteraction = not settings.alwaysAllowMapInteraction end
-      if ui.itemHovered() then ui.setTooltip('Allow for middle click and scrollwheel to control the map even when not hovering the mouse over it. Good for using with wheel bindings') end
+      if ui.checkbox("control maps at any time", settings.always_allow_map_interaction) then settings.always_allow_map_interaction = not settings.always_allow_map_interaction end
+      if ui.itemHovered() then ui.setTooltip('allow for middle click and scrollwheel to control the map even when not hovering the mouse over it. good for using with wheel bindings') end
+      if settings.always_allow_map_interaction then
+        ui.indent()
+        if ui.checkbox("control big map at any time", settings.always_allow_beeg_interaction) then settings.always_allow_beeg_interaction = not settings.always_allow_beeg_interaction end
+        if ui.checkbox("control smol map at any time", settings.always_allow_smol_interaction) then settings.always_allow_smol_interaction = not settings.always_allow_smol_interaction end
+        ui.unindent()
+      end
       if ui.checkbox("teleports", settings.teleporting) then settings.teleporting = not settings.teleporting end
       if settings.teleporting then
         ui.indent()
@@ -589,7 +597,7 @@ function windowSmol(dt)
   if first then return end
 
   ui.invisibleButton()
-  if ui.windowHovered() and ui.mouseWheel() then smol_scale = smol_scale * (1 + 0.1 * ui.mouseWheel()) end
+  if (ui.windowHovered() or (settings.always_allow_smol_interaction and settings.always_allow_map_interaction)) and ui.mouseWheel() then smol_scale = smol_scale * (1 + 0.1 * ui.mouseWheel()) end
   focusedCar = ac.getCar(ac.getSim().focusedCar)
   offsets1:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(smol_scale / config.SCALE_FACTOR):add(-ui.windowSize()*centered_offset) --autocenter
 
