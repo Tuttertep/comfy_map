@@ -186,6 +186,8 @@ function script.windowMain(dt)
   ui.pushClipRect(0, ui.windowSize()) --background
   ui.invisibleButton()
 
+  focusedCar = ac.getCar(ac.getSim().focusedCar)
+
   if windowHovered or (settings.always_allow_beeg_interaction and settings.always_allow_map_interaction) then --zoom&drag&centering&reset
     if ac.getUI().mouseWheel ~= 0 then
       if (ac.getUI().mouseWheel < 0 and (size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
@@ -193,7 +195,11 @@ function script.windowMain(dt)
         map_scale = map_scale * (1 + math.sign(ac.getUI().mouseWheel) * 0.15)
         size = ui.imageSize(current_map) * map_scale
         config_scale = map_scale / config.SCALE_FACTOR
-        offsets = offsets + (size - old) * (offsets + ui.mouseLocalPos()) / old -- DON'T touch, powered by dark magic
+        focus = ui.mouseLocalPos()
+        if not windowHovered then
+          focus:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(config_scale):add(-offsets)
+        end
+        offsets = offsets + (size - old) * (offsets + focus) / old -- DON'T touch, powered by dark magic
       else
         resetScale()
       end
@@ -206,7 +212,6 @@ function script.windowMain(dt)
     end
   end
 
-  focusedCar = ac.getCar(ac.getSim().focusedCar)
 
   if settings.centered then --center on car and rotate
     offsets:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(config_scale):add(-ui.windowSize()*centered_offset) --autocenter
@@ -369,7 +374,7 @@ function script.windowMain(dt)
 
 
   windowHovered = ui.windowHovered(105) or draggingMap
-  if not settings.centered then --window movable while centered
+  if not settings.centered then --window not movable while centered
     ui.setCursor() ui.invisibleButton('draggingbutton', ui.windowSize())
     draggingMap = ((ui.mouseDown() and ui.itemHovered()) or draggingMap) and ui.mouseDown()
     if draggingMap then offsets = offsets - ui.mouseDelta() end
