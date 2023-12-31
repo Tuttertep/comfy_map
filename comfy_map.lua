@@ -37,6 +37,9 @@ local default_colors = stringify{
 
 local defaults = {
   centered = false,
+  always_allow_map_interaction = false,
+  always_allow_beeg_interaction = false,
+  always_allow_smol_interaction = false,
   centered_zoom = 0.5,
   centered_offset = 0,
   rotation = true,
@@ -183,14 +186,20 @@ function script.windowMain(dt)
   ui.pushClipRect(0, ui.windowSize()) --background
   ui.invisibleButton()
 
-  if windowHovered then --zoom&drag&centering&reset
+  focusedCar = ac.getCar(ac.getSim().focusedCar)
+
+  if windowHovered or (settings.always_allow_beeg_interaction and settings.always_allow_map_interaction) then --zoom&drag&centering&reset
     if ac.getUI().mouseWheel ~= 0 then
       if (ac.getUI().mouseWheel < 0 and (size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
         local old = size
         map_scale = map_scale * (1 + math.sign(ac.getUI().mouseWheel) * 0.15)
         size = ui.imageSize(current_map) * map_scale
         config_scale = map_scale / config.SCALE_FACTOR
-        offsets = offsets + (size - old) * (offsets + ui.mouseLocalPos()) / old -- DON'T touch, powered by dark magic
+        focus = ui.mouseLocalPos()
+        if not windowHovered then
+          focus:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(config_scale):add(-offsets)
+        end
+        offsets = offsets + (size - old) * (offsets + focus) / old -- DON'T touch, powered by dark magic
       else
         resetScale()
       end
@@ -203,11 +212,9 @@ function script.windowMain(dt)
     end
   end
 
-  focusedCar = ac.getCar(ac.getSim().focusedCar)
 
   if settings.centered then --center on car and rotate
     offsets:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(config_scale):add(-ui.windowSize()*centered_offset) --autocenter
-
     if settings.rotation then
       rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
       rotation = mat4x4.rotation(math.rad(rotationangle), vec.y)
@@ -367,7 +374,7 @@ function script.windowMain(dt)
 
 
   windowHovered = ui.windowHovered(105) or draggingMap
-  if not settings.centered then --window movable while centered
+  if not settings.centered then --window not movable while centered
     ui.setCursor() ui.invisibleButton('draggingbutton', ui.windowSize())
     draggingMap = ((ui.mouseDown() and ui.itemHovered()) or draggingMap) and ui.mouseDown()
     if draggingMap then offsets = offsets - ui.mouseDelta() end
@@ -407,6 +414,14 @@ function script.windowMainSettings(dt)
         if ui.checkbox("rotate while following", settings.rotation) then settings.rotation = not settings.rotation end
         ui.unindent()
         if ui.itemHovered() then ui.setTooltip('middle click map to toggle rotation') end
+      end
+      if ui.checkbox("control maps at any time", settings.always_allow_map_interaction) then settings.always_allow_map_interaction = not settings.always_allow_map_interaction end
+      if ui.itemHovered() then ui.setTooltip('allow for middle click and scrollwheel to control the map even when not hovering the mouse over it. good for using with wheel bindings') end
+      if settings.always_allow_map_interaction then
+        ui.indent()
+        if ui.checkbox("control big map at any time", settings.always_allow_beeg_interaction) then settings.always_allow_beeg_interaction = not settings.always_allow_beeg_interaction end
+        if ui.checkbox("control smol map at any time", settings.always_allow_smol_interaction) then settings.always_allow_smol_interaction = not settings.always_allow_smol_interaction end
+        ui.unindent()
       end
       if ui.checkbox("teleports", settings.teleporting) then settings.teleporting = not settings.teleporting end
       if settings.teleporting then
@@ -587,7 +602,7 @@ function windowSmol(dt)
   if first then return end
 
   ui.invisibleButton()
-  if ui.windowHovered() and ui.mouseWheel() then smol_scale = smol_scale * (1 + 0.1 * ui.mouseWheel()) end
+  if (ui.windowHovered() or (settings.always_allow_smol_interaction and settings.always_allow_map_interaction)) and ui.mouseWheel() then smol_scale = smol_scale * (1 + 0.1 * ui.mouseWheel()) end
   focusedCar = ac.getCar(ac.getSim().focusedCar)
   offsets1:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(smol_scale / config.SCALE_FACTOR):add(-ui.windowSize()*centered_offset) --autocenter
 
