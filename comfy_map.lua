@@ -43,6 +43,7 @@ local defaults = {
   teleporting = true,
   teleporting_mouseover = true,
   new_teleports = true,
+  new_render = false,
   teleport_warning = true,
   friends = true,
   namesx = 0,
@@ -77,7 +78,7 @@ function saveMarkers(m)
   settings.markers = stringify(m)
   loadCars()
 end
-settings.centered_offset = 0
+
 local owncar, focusedCar, sim = ac.getCar(0), ac.getCar(0), ac.getSim()
 local first = true
 local versionerror = "requires csp version 1.78 or newer (this message is displayed when the version id is below 2000)"
@@ -90,7 +91,6 @@ local vec = {x=vec3(1,0,0),y=vec3(0,1,0),z=vec3(0,0,1),empty=vec3()}
 local pos3, dir3, pos2, dir2, dir2x = vec3(), vec3(), vec2(), vec2(), vec2()
 local padding = vec2(0, 22)
 local outline = rgbm()
-local offsets = -padding
 local config = {}
 local asd1 = nil
 local hoveringTeleport = false
@@ -146,7 +146,6 @@ end
 function fetchRatings()
   if not sim.isOnlineRace then return end
   local url = "http://" .. ac.getServerIP() .. ":" .. ac.getServerPortHTTP() .. "/safetyrating"
-  --local url = "http://5.161.43.117:8081/safetyrating"
     web.get(url, function(err, response)
       local ratings = stringify.parse(response.body)
       if response.status ~= 200 then return end
@@ -185,21 +184,6 @@ function loadCars()
   end)
 end
 
-
-
-function resetScale()
-  local extra_space = ui.windowSize()*0.01
-  offsets = -padding - extra_space
-  image_size = ui.imageSize(current_map) ~= 0 and ui.imageSize(current_map) or vec2(config.WIDTH,config.HEIGHT)
-  local windowSize = ui.windowSize()-padding-extra_space*2
-  map_scale = math.min(windowSize.x / image_size.x, windowSize.y / image_size.y)
-  size = image_size * map_scale
-  config_scale = map_scale / config.SCALE_FACTOR
-end
-
-
-
-
 function script.windowMain(dt)
   if version < 2000 then ui.text(versionerror) return end
   onShowWindow()
@@ -209,42 +193,25 @@ function script.windowMain(dt)
 
   if windowHovered then --zoom&drag&centering&reset
     if ac.getUI().mouseWheel ~= 0 then
-      if (ac.getUI().mouseWheel < 0 and (size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
-        local old = size
-        map_scale = map_scale * (1 + math.sign(ac.getUI().mouseWheel) * 0.15)
-        size = ui.imageSize(current_map) * map_scale
-        config_scale = map_scale / config.SCALE_FACTOR
-        offsets = offsets + (size - old) * (offsets + ui.mouseLocalPos()) / old -- DON'T touch, powered by dark magic
+      if (ac.getUI().mouseWheel < 0 and (main_map.size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
+        local old = main_map.size
+        main_map.scale = main_map.scale * (1 + math.sign(ac.getUI().mouseWheel) * 0.15)
+        main_map.size = main_map.image_size * main_map.scale
+        main_map.config_scale = main_map.scale / config.SCALE_FACTOR
+        main_map.offsets = main_map.offsets + (main_map.size - old) * (main_map.offsets + ui.mouseLocalPos()) / old -- DON'T touch, powered by dark magic
       else
-        resetScale()
+        resetScale1(main_map)
       end
     end
     if ui.mouseClicked(2) then --toggle centering with middle click
-      if settings.centered then
-        resetScale()
-      end
+      if settings.centered then resetScale1(main_map) end
       settings.centered = not settings.centered
     end
   end
 
   focusedCar = ac.getCar(sim.focusedCar)
 
-  if settings.centered then --center on car and rotate
-    offsets:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(config_scale):add(-ui.windowSize()*centered_offset) --autocenter
-
-    if settings.rotation then
-      rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
-      rotation = mat4x4.rotation(math.rad(rotationangle), vec.y)
-      ui.beginRotation()
-    end
-  end
-
-  ui.beginOutline()
-  ui.drawImage(current_map, -offsets, -offsets + size, markers.map.color) --map image
-  ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
-
-
-  if settings.centered and settings.rotation then ui.endPivotRotation(rotationangle + 90, ui.windowSize()*centered_offset) end
+  drawMap1(main_map, settings.centered, settings.rotation)
 
   for i,j in pairs(cars) do
     local car = ac.getCar(j.index)
@@ -256,10 +223,10 @@ function script.windowMain(dt)
         pos3 = rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position
         dir3 = rotation:transformPoint(car.look)
       end
-      pos2:set(pos3.x, pos3.z):add(config_offset):scale(config_scale):add(-offsets)
-      dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and map_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
-      dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and map_scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
-      --for k=0,3 do ui.drawCircleFilled(vec2.tmp():set(owncar.wheels[k].position.x,owncar.wheels[k].position.z):add(config_offset):scale(config_scale):sub(offsets),5,rgbm.colors.red) end
+      pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(main_map.config_scale):add(-main_map.offsets)
+      dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and main_map.scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
+      dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and main_map.scale^0.3 or 1):scale(settings.arrowsize):scale(j.size)
+      --for k=0,3 do ui.drawCircleFilled(vec2.tmp():set(owncar.wheels[k].position.x,owncar.wheels[k].position.z):add(config.OFFSETS):scale(config_scale):sub(offsets),5,rgbm.colors.red) end
       drawArrow(car,j.color)
       j.pos2:set(pos2.x,pos2.y)
 
@@ -279,7 +246,7 @@ function script.windowMain(dt)
       local teleport_position = j.POS
       local teleport_name = (j.GROUP ~= nil and j.GROUP .. '/' or "") .. j.POINT .. i-1
       if settings.centered and settings.rotation then teleport_position = (rotation:transformPoint(teleport_position - focusedCar.position) + focusedCar.position) end
-      iconpos:set(teleport_position.x, teleport_position.z):add(config_offset):scale(config_scale):add(-offsets)
+      iconpos:set(teleport_position.x, teleport_position.z):add(config.OFFSETS):scale(main_map.config_scale):add(-main_map.offsets)
       local h = math.rad(j.HEADING + ac.getCompassAngle(vec.z) + (settings.centered and settings.rotation and rotationangle or 0))
       dir2:set(math.sin(h), math.cos(h))
       local color = rgbm.colors.fuchsia
@@ -299,7 +266,7 @@ function script.windowMain(dt)
         local teleport_position = j.POS
         local teleport_name = (j.GROUP ~= nil and j.GROUP .. '/' or "") .. j.POINT -- .. ' ' .. i-1 .. ' ' .. j.INDEX
         if settings.centered and settings.rotation then teleport_position = (rotation:transformPoint(teleport_position - focusedCar.position) + focusedCar.position) end
-        iconpos:set(teleport_position.x, teleport_position.z):add(config_offset):scale(config_scale):add(-offsets)
+        iconpos:set(teleport_position.x, teleport_position.z):add(config.OFFSETS):scale(main_map.config_scale):add(-main_map.offsets)
         local marker = ac.canTeleportToServerPoint(j.INDEX) and markers.teleport_available or markers.teleport_unavailable
         local color = marker.color
         local h = math.rad(j.HEADING + ac.getCompassAngle(vec.z) + (settings.centered and settings.rotation and rotationangle or 0))
@@ -347,9 +314,9 @@ function script.windowMain(dt)
       pos3 = rotation:transformPoint(pos3 - focusedCar.position) + focusedCar.position
       dir3 = rotation:transformPoint(dir3)
     end
-    pos2:set(pos3.x, pos3.z):add(config_offset):scale(config_scale):sub(offsets)
-    dir2:set(dir3.x, dir3.z):normalize():scale(settings.arrowsize):scale(settings.arrow_scaling and map_scale^0.3 or 1)
-    dir2x:set(dir3.z, -dir3.x):normalize():scale(settings.arrowsize):scale(settings.arrow_scaling and map_scale^0.3 or 1)
+    pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(main_map.config_scale):sub(main_map.offsets)
+    dir2:set(dir3.x, dir3.z):normalize():scale(settings.arrowsize):scale(settings.arrow_scaling and main_map.scale^0.3 or 1)
+    dir2x:set(dir3.z, -dir3.x):normalize():scale(settings.arrowsize):scale(settings.arrow_scaling and main_map.scale^0.3 or 1)
     ui.beginOutline()
     ui.drawTriangleFilled(pos2 + dir2,
       pos2 - dir2 - dir2x * 0.75,
@@ -359,7 +326,7 @@ function script.windowMain(dt)
   end
 
   if ui.keyPressed(ui.Key.Space) and ui.windowHovered() then --freecam teleport
-    pos2:set(ui.mouseLocalPos()):add(offsets):scale(1/config_scale):sub(config_offset)
+    pos2:set(ui.mouseLocalPos()):add(main_map.offsets):scale(1/main_map.config_scale):sub(config.OFFSETS)
 
     allow = true
     local raycastheight = 3000
@@ -379,7 +346,7 @@ function script.windowMain(dt)
       local raycastnormal = vec3()
       local raycast = physics.raycastTrack(pos, -vec.y, raycastheight*2, _, raycastnormal)
       if raycast == -1 or math.abs(raycast-initialray)>0.2 then allow = false
-        ui.drawCircleFilled(vec2.tmp():set(pos.x, pos.z):add(config_offset):scale(config_scale):sub(offsets),5,rgbm.colors.red)
+        ui.drawCircleFilled(vec2.tmp():set(pos.x, pos.z):add(config.OFFSETS):scale(config_scale):sub(offsets),5,rgbm.colors.red)
       end
     end
     pos3:set(pos2.x, raycastheight-initialray+3, pos2.y)
@@ -399,7 +366,7 @@ function script.windowMain(dt)
   if not settings.centered then --window movable while centered
     ui.setCursor() ui.invisibleButton('draggingbutton', ui.windowSize())
     draggingMap = ((ui.mouseDown() and ui.itemHovered()) or draggingMap) and ui.mouseDown()
-    if draggingMap then offsets = offsets - ui.mouseDelta() end
+    if draggingMap then main_map.offsets = main_map.offsets - ui.mouseDelta() end
   end
 
   ui.popClipRect()
@@ -444,6 +411,8 @@ function script.windowMainSettings(dt)
     end
 
     ui.tabItem('settings', function() --settings tab
+      if ui.checkbox("new render", settings.new_render) then settings.new_render = not settings.new_render end
+      if ui.itemHovered() then ui.setTooltip('adds mipmaps to map files to hopefully reduce lag on large tracks') end
       if ui.checkbox("follow player", settings.centered) then settings.centered = not settings.centered end
       if ui.itemHovered() then ui.setTooltip('middle click map to quickly toggle') end
       if settings.centered then
@@ -518,7 +487,7 @@ function script.windowMainSettings(dt)
         if i=='map' then
           ui.setNextItemWidth(120)
           settings.centered_zoom, changedzoom = ui.slider('##' .. 'default zoom', settings.centered_zoom, 0.1, 2, 'default zoom' .. ': %.1f')
-          if changedzoom then smol_scale = settings.centered_zoom end
+          if changedzoom then smol_map.scale = settings.centered_zoom end
         end
         ui.nextColumn()
       end
@@ -623,25 +592,56 @@ function script.windowMainSettings(dt)
   ui.endOutline(rgbm.colors.black)
 end
 
-offsets1 = -padding
-smol_scale = settings.centered_zoom
+function resetScale1(map,zoomed)
+  local extra_space = ui.windowSize()*0.01
+  map.offsets = -padding - extra_space
+  map.image_size = map.image_size ~= 0 and map.image_size or vec2(config.WIDTH,config.HEIGHT)
+  local windowSize = ui.windowSize()-padding-extra_space*2
+  map.scale = math.min(windowSize.x / map.image_size.x, windowSize.y / map.image_size.y)
+  if zoomed then map.scale = settings.centered_zoom end
+  map.size = map.image_size * map.scale
+  map.config_scale = map.scale / config.SCALE_FACTOR
+
+end
+
+
+function drawMap1(map,centered,rotate)
+  if centered then --center on car and rotate
+    map.offsets:set(focusedCar.position.x, focusedCar.position.z):add(config.OFFSETS):scale(map.scale / config.SCALE_FACTOR):add(-ui.windowSize()*centered_offset) --autocenter
+
+    if rotate then
+      rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
+      rotation = mat4x4.rotation(math.rad(rotationangle), vec.y)
+      ui.beginRotation()
+    end
+  end
+
+  ui.beginOutline()
+  if settings.new_render then
+    ui.drawImage(map.canvas, -map.offsets, -map.offsets + map.size, markers.map.color) --map image
+  else
+    ui.drawImage(map.image, -map.offsets, -map.offsets + map.size, markers.map.color) --map image
+  end
+  ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
+
+
+  if centered and rotate then ui.endPivotRotation(rotationangle + 90, ui.windowSize()*centered_offset) end
+
+end
+
 function windowSmol(dt)
   if version < 2000 then ui.text(versionerror) return end
   onShowWindow()
   if first then return end
 
   ui.invisibleButton()
-  if ui.windowHovered() and ui.mouseWheel() then smol_scale = smol_scale * (1 + 0.1 * ui.mouseWheel()) end
+  if ui.windowHovered() and ui.mouseWheel() then
+    smol_map.scale = smol_map.scale * (1 + 0.1 * ui.mouseWheel())
+    smol_map.size = smol_map.image_size*smol_map.scale
+  end
   focusedCar = ac.getCar(sim.focusedCar)
-  offsets1:set(focusedCar.position.x, focusedCar.position.z):add(config_offset):scale(smol_scale / config.SCALE_FACTOR):add(-ui.windowSize()*centered_offset) --autocenter
 
-  rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
-  rotation = mat4x4.rotation(math.rad(rotationangle), vec.y)
-  ui.beginRotation()
-  ui.beginOutline()
-  ui.drawImage(map, -offsets1, -offsets1 + image_size * smol_scale, markers.map.color) --map image
-  ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
-  ui.endPivotRotation(rotationangle + 90, ui.windowSize()*centered_offset)
+  drawMap1(smol_map,true,true)
 
   for i,j in pairs(cars) do  --draw stuff on small map
     local car = ac.getCar(j.index)
@@ -649,17 +649,15 @@ function windowSmol(dt)
       j.color, j.size = getPlayerColor(j.index)
       pos3:set(rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position)
       dir3:set(rotation:transformPoint(car.look))
-      pos2:set(pos3.x, pos3.z):add(config_offset):scale(smol_scale / config.SCALE_FACTOR):add(-offsets1)
-      dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and smol_scale^0.3 or 1):scale(settings.arrowsize_smol):scale(j.size)
-      dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and smol_scale^0.3 or 1):scale(settings.arrowsize_smol):scale(j.size)
+      pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(smol_map.scale / config.SCALE_FACTOR):add(-smol_map.offsets)
+      dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and smol_map.scale^0.3 or 1):scale(settings.arrowsize_smol):scale(j.size)
+      dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and smol_map.scale^0.3 or 1):scale(settings.arrowsize_smol):scale(j.size)
       drawArrow(car, j.color)
       j.pos2:set(pos2.x,pos2.y)
     end
   end
   for i,j in pairs(cars) do
-    if shouldDrawCar(j.index) then
-      if settings.names_smol and (not settings.names_smol_mouseover or ui.windowHovered()) then drawName(j) end
-    end
+    if settings.names_smol and (not settings.names_smol_mouseover or ui.windowHovered()) and shouldDrawCar(j.index) then drawName(j) end
   end
 end
 
@@ -737,23 +735,37 @@ function onShowWindow() --somehow works?
       first = false
       ini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/data/map.ini'
       config = ac.INIConfig.load(ini):mapSection('PARAMETERS', { SCALE_FACTOR = 1, Z_OFFSET = 1, X_OFFSET = 1, WIDTH=500, HEIGHT=500, MARGIN=20, DRAWING_SIZE=10, MAX_SIZE=1000})
-      config_offset = vec2(config.X_OFFSET, config.Z_OFFSET)
-  
-      image_size = ui.imageSize(map)
-      resetScale()
-      if settings.centered then
-        map_scale = smol_scale 
-        size = image_size * map_scale
-        config_scale = map_scale / config.SCALE_FACTOR
-      end
+      config.OFFSETS = vec2(config.X_OFFSET, config.Z_OFFSET)
+
       centered_offset = vec2(0.5,0.5-settings.centered_offset)
       namepos = vec2(settings.namesx, settings.namesy)
       if sim.isOnlineRace then --teleport config
-        onlineExtras = ac.INIConfig.onlineExtras()
-        teleports1 = loadTeleports(onlineExtras)
+        teleports1 = loadTeleports(ac.INIConfig.onlineExtras())
       end
       loadMarkers()
       loadCars()
+
+      main_map = {
+        image = current_map,
+        image_size = ui.imageSize(current_map),
+        scale = 1,
+        size = vec2(),
+        offsets = vec2(),
+        canvas = ui.ExtraCanvas(ui.imageSize(current_map),10),
+      }
+      resetScale1(main_map,settings.centered and settings.rotation)
+      main_map.canvas:update(function (dt) ui.drawImage(main_map.image,vec2(),main_map.image_size) end)
+
+      smol_map = {
+        image = map,
+        image_size = ui.imageSize(map),
+        scale = settings.centered_zoom,
+        offsets = vec2(),
+        canvas = ui.ExtraCanvas(ui.imageSize(map),10),
+      }
+      resetScale1(smol_map,true)
+      smol_map.canvas:update(function (dt) ui.drawImage(smol_map.image,vec2(),smol_map.image_size) end)
+
     end
   end
 end
