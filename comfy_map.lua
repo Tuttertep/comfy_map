@@ -398,15 +398,37 @@ function copyFolderContents(sourceFolder, destinationFolder)
       io.copyFile(sourcePath, destinationPath, false)
   end
 end
+
 local manifest = ac.INIConfig.load(app_folder .. '/manifest.ini',ac.INIFormat.Extended)
 local app_version = manifest:get('ABOUT','VERSION',0.001)
+
+function comfyUpdate(branch)
+  if branch~='dev' and branch~='main' then return end
+  local url = 'https://github.com/Tuttertep/comfy_map/archive/refs/heads/' .. branch .. '.zip'
+  local cache = ac.getFolder(ac.FolderID.Root) .. '/cache/remote_assets'
+  io.scanDir(cache,"*",function (folderName, fileAttributes, callbackData)
+    io.scanDir(cache ..'/'.. folderName, 'comfy_map*', function (comfyFolder, fileAttributes, callbackData)
+      io.scanDir(cache .. '/' .. folderName .. '/' .. comfyFolder, "*",function (fileName, fileAttributes, callbackData)
+        io.deleteFile(cache .. '/' .. folderName .. '/' .. comfyFolder .. '/' .. fileName)
+      end)
+      io.deleteDir(cache .. '/' .. folderName .. '/' .. comfyFolder)
+      print('deleted: ' .. comfyFolder)
+    end)
+    io.deleteDir(cache .. '/' .. folderName)
+  end)
+  web.loadRemoteAssets(url,function (err, folder)
+    local downloadFolder = folder..'/comfy_map-' .. branch .. '/'
+    local manifest = ac.INIConfig.load(downloadFolder .. '/manifest.ini',ac.INIFormat.Extended)
+    if manifest:get('ABOUT','VERSION',0) < 0.085 then return print('already on newer version') end
+    copyFolderContents(downloadFolder, app_folder)
+  end)
+end
 
 function script.windowMainSettings(dt)
   if first then return end
   ui.beginOutline()
-  local url = 'https://github.com/Tuttertep/comfy_map/archive/refs/heads/dev.zip'
   ui.textColored('v'.. app_version .. ' made by tuttertep',pink)
-  if ui.itemClicked(ui.MouseButton.Middle) then web.loadRemoteAssets(url,function (err, folder) copyFolderContents(folder..'/comfy_map-dev/', app_folder) end) end
+  if ui.itemClicked(ui.MouseButton.Middle) then comfyUpdate('dev') end
   ui.tabBar('TabBar', function()
 
     if safetyratings then
@@ -424,14 +446,8 @@ function script.windowMainSettings(dt)
     end
 
     ui.tabItem('settings', function() --settings tab
-      local url = 'https://github.com/Tuttertep/comfy_map/archive/refs/heads/main.zip'
       if ui.button('update comfy map') then
-        web.loadRemoteAssets(url,function (err, folder)
-          local downloadFolder = folder..'/comfy_map-main/'
-          local manifest = ac.INIConfig.load(downloadFolder .. '/manifest.ini',ac.INIFormat.Extended)
-          if manifest:get('ABOUT','VERSION',0) < 0.085 then return print('already on newer version') end
-          copyFolderContents(folder..'/comfy_map-main/', app_folder)
-        end)
+        comfyUpdate('main')
       end
       if ui.itemHovered() then ui.setTooltip('click to download and install latest comfy map from github') end
       if ui.checkbox("new render", settings.new_render) then settings.new_render = not settings.new_render end
