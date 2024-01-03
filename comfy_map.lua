@@ -43,7 +43,7 @@ local defaults = {
   teleporting = true,
   teleporting_mouseover = true,
   new_teleports = true,
-  new_render = false,
+  new_render = true,
   teleport_warning = true,
   friends = true,
   namesx = 0,
@@ -82,6 +82,7 @@ end
 local owncar, focusedCar, sim = ac.getCar(0), ac.getCar(0), ac.getSim()
 local first = true
 local versionerror = "requires csp version 1.78 or newer (this message is displayed when the version id is below 2000)"
+local app_folder = ac.getFolder(ac.FolderID.ACApps) .. '/lua/comfy_map/'
 local version = ac.getPatchVersionCode()
 local collected_teleports = {}
 
@@ -148,7 +149,7 @@ function fetchRatings()
   local url = "http://" .. ac.getServerIP() .. ":" .. ac.getServerPortHTTP() .. "/safetyrating"
     web.get(url, function(err, response)
       local ratings = stringify.parse(response.body)
-      if response.status ~= 200 then return end
+      if response.body == "" then return end
       safetyratings = {}
       for i,rating in pairs(ratings) do
         safetyratings[rating.Name] = rating
@@ -200,18 +201,18 @@ function script.windowMain(dt)
         main_map.config_scale = main_map.scale / config.SCALE_FACTOR
         main_map.offsets = main_map.offsets + (main_map.size - old) * (main_map.offsets + ui.mouseLocalPos()) / old -- DON'T touch, powered by dark magic
       else
-        resetScale1(main_map)
+        resetScale(main_map)
       end
     end
     if ui.mouseClicked(2) then --toggle centering with middle click
-      if settings.centered then resetScale1(main_map) end
+      if settings.centered then resetScale(main_map) end
       settings.centered = not settings.centered
     end
   end
 
   focusedCar = ac.getCar(sim.focusedCar)
 
-  drawMap1(main_map, settings.centered, settings.rotation)
+  drawMap(main_map, settings.centered, settings.rotation)
 
   for i,j in pairs(cars) do
     local car = ac.getCar(j.index)
@@ -325,7 +326,7 @@ function script.windowMain(dt)
     ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   end
 
-  if ui.keyPressed(ui.Key.Space) and ui.windowHovered() then --freecam teleport
+  if not (settings.centered and settings.rotation) and ui.keyPressed(ui.Key.Space) and ui.windowHovered() then --freecam teleport
     pos2:set(ui.mouseLocalPos()):add(main_map.offsets):scale(1/main_map.config_scale):sub(config.OFFSETS)
 
     allow = true
@@ -346,7 +347,7 @@ function script.windowMain(dt)
       local raycastnormal = vec3()
       local raycast = physics.raycastTrack(pos, -vec.y, raycastheight*2, _, raycastnormal)
       if raycast == -1 or math.abs(raycast-initialray)>0.2 then allow = false
-        ui.drawCircleFilled(vec2.tmp():set(pos.x, pos.z):add(config.OFFSETS):scale(config_scale):sub(offsets),5,rgbm.colors.red)
+        ui.drawCircleFilled(vec2.tmp():set(pos.x, pos.z):add(config.OFFSETS):scale(main_map.config_scale):sub(main_map.offsets),5,rgbm.colors.red)
       end
     end
     pos3:set(pos2.x, raycastheight-initialray+3, pos2.y)
@@ -390,17 +391,29 @@ function drawTeleport(iconpos, h, color, size)
   ui.dummy(size * 2)
 end
 
+function copyFolderContents(sourceFolder, destinationFolder)
+  for file in io.popen('dir "' .. sourceFolder .. '" /b'):lines() do
+      local sourcePath = sourceFolder .. "/" .. file
+      local destinationPath = destinationFolder .. "/" .. file
+      io.copyFile(sourcePath, destinationPath, false)
+  end
+end
+local manifest = ac.INIConfig.load(app_folder .. '/manifest.ini',ac.INIFormat.Extended)
+local app_version = manifest:get('ABOUT','VERSION',0.001)
+
 function script.windowMainSettings(dt)
   if first then return end
   ui.beginOutline()
-  ui.textColored('made by tuttertep',pink)
+  local url = 'https://github.com/Tuttertep/comfy_map/archive/refs/heads/dev.zip'
+  ui.textColored('v'.. app_version .. ' made by tuttertep',pink)
+  if ui.itemClicked(ui.MouseButton.Middle) then web.loadRemoteAssets(url,function (err, folder) copyFolderContents(folder..'/comfy_map-dev/', app_folder) end) end
   ui.tabBar('TabBar', function()
 
     if safetyratings then
       ui.tabItem('safety ratings', function ()
         ui.columns(2,false)
         for name,rating in pairs(safetyratings) do
-          local color = hsv(240+(1-rating.Rating)*20,0.9,0.9):rgb()
+          local color = hsv(240+(1-rating.Rating/10)*20,0.9,0.9):rgb()
           ui.textColored(name,color)
           ui.nextColumn()
           ui.textColored(math.round(rating.Rating,2),color)
@@ -411,6 +424,9 @@ function script.windowMainSettings(dt)
     end
 
     ui.tabItem('settings', function() --settings tab
+      local url = 'https://github.com/Tuttertep/comfy_map/archive/refs/heads/main.zip'
+      if ui.button('update comfy map') then web.loadRemoteAssets(url,function (err, folder) copyFolderContents(folder..'/comfy_map-main/', app_folder) end) end
+      if ui.itemHovered() then ui.setTooltip('click to download and install latest comfy map from github') end
       if ui.checkbox("new render", settings.new_render) then settings.new_render = not settings.new_render end
       if ui.itemHovered() then ui.setTooltip('adds mipmaps to map files to hopefully reduce lag on large tracks') end
       if ui.checkbox("follow player", settings.centered) then settings.centered = not settings.centered end
@@ -557,15 +573,15 @@ function script.windowMainSettings(dt)
 
         ui.pushStyleColor(ui.StyleColor.Button, rgbm.colors.teal)
         if ui.button("config save") then
-          io.save(ac.getFolder(ac.FolderID.ACApps) .. '/lua/comfy_map/extra.ini', saveTeleports(collected_teleports))
-          os.openTextFile(ac.getFolder(ac.FolderID.ACApps) .. '/lua/comfy_map/extra.ini', 10)
+          io.save(app_folder .. 'extra.ini', saveTeleports(collected_teleports))
+          os.openTextFile(app_folder .. 'extra.ini', 10)
         end
         if ui.itemHovered() then ui.setTooltip('save in comfy_map/extra.ini') end
         ui.popStyleColor()
 
         ui.pushStyleColor(ui.StyleColor.Button, rgbm.colors.purple)
         ui.sameLine() if ui.button("config load") then
-          local extra_ini = ac.INIConfig.load(ac.getFolder(ac.FolderID.ACApps) .. '/lua/comfy_map/extra.ini', ac.INIFormat.Extended)
+          local extra_ini = ac.INIConfig.load(app_folder .. 'extra.ini', ac.INIFormat.Extended)
           ui.text(extra_ini)
           collected_teleports = loadTeleports(extra_ini)
         end
@@ -592,10 +608,10 @@ function script.windowMainSettings(dt)
   ui.endOutline(rgbm.colors.black)
 end
 
-function resetScale1(map,zoomed)
+function resetScale(map,zoomed)
   local extra_space = ui.windowSize()*0.01
   map.offsets = -padding - extra_space
-  map.image_size = map.image_size ~= 0 and map.image_size or vec2(config.WIDTH,config.HEIGHT)
+  map.image_size = ui.imageSize(map.image) or vec2(config.WIDTH,config.HEIGHT)
   local windowSize = ui.windowSize()-padding-extra_space*2
   map.scale = math.min(windowSize.x / map.image_size.x, windowSize.y / map.image_size.y)
   if zoomed then map.scale = settings.centered_zoom end
@@ -605,7 +621,7 @@ function resetScale1(map,zoomed)
 end
 
 
-function drawMap1(map,centered,rotate)
+function drawMap(map,centered,rotate)
   if centered then --center on car and rotate
     map.offsets:set(focusedCar.position.x, focusedCar.position.z):add(config.OFFSETS):scale(map.scale / config.SCALE_FACTOR):add(-ui.windowSize()*centered_offset) --autocenter
 
@@ -641,7 +657,7 @@ function windowSmol(dt)
   end
   focusedCar = ac.getCar(sim.focusedCar)
 
-  drawMap1(smol_map,true,true)
+  drawMap(smol_map,true,true)
 
   for i,j in pairs(cars) do  --draw stuff on small map
     local car = ac.getCar(j.index)
@@ -725,11 +741,11 @@ end
 function onShowWindow() --somehow works?
   if first then
     if version < 2000 then return end
-    map1 = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map_mini.png'
+    map_mini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map_mini.png'
     map = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map.png'
-    ui.decodeImage(map1)
+    ui.decodeImage(map_mini)
     ui.decodeImage(map)
-    current_map = io.exists(map1) and map1 or  map
+    current_map = io.exists(map_mini) and map_mini or  map
     ui.text('map file loading or missing')
     if ui.isImageReady(current_map) then
       first = false
@@ -748,23 +764,18 @@ function onShowWindow() --somehow works?
       main_map = {
         image = current_map,
         image_size = ui.imageSize(current_map),
-        scale = 1,
-        size = vec2(),
-        offsets = vec2(),
         canvas = ui.ExtraCanvas(ui.imageSize(current_map),10),
       }
-      resetScale1(main_map,settings.centered and settings.rotation)
-      main_map.canvas:update(function (dt) ui.drawImage(main_map.image,vec2(),main_map.image_size) end)
+      resetScale(main_map,settings.centered and settings.rotation)
+      main_map.canvas:update(function (dt) ui.drawImage(main_map.image,vec2(),main_map.image_size) end):mipsUpdate()
 
       smol_map = {
         image = map,
         image_size = ui.imageSize(map),
-        scale = settings.centered_zoom,
-        offsets = vec2(),
         canvas = ui.ExtraCanvas(ui.imageSize(map),10),
       }
-      resetScale1(smol_map,true)
-      smol_map.canvas:update(function (dt) ui.drawImage(smol_map.image,vec2(),smol_map.image_size) end)
+      resetScale(smol_map,true)
+      smol_map.canvas:update(function (dt) ui.drawImage(smol_map.image,vec2(),smol_map.image_size) end):mipsUpdate()
 
     end
   end
