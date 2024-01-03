@@ -428,14 +428,14 @@ function script.windowMainSettings(dt)
   if first then return end
   ui.beginOutline()
   ui.textColored('v'.. app_version .. ' made by tuttertep',pink)
-  if ui.itemClicked(ui.MouseButton.Middle) then comfyUpdate('dev') end
+  if ui.itemClicked(ui.MouseButton.Middle) then comfyUpdate('dev') end -- hidden dev branch button
   ui.tabBar('TabBar', function()
 
     if safetyratings then
       ui.tabItem('safety ratings', function ()
         ui.columns(2,false)
         for name,rating in pairs(safetyratings) do
-          local color = hsv(240+(1-rating.Rating/10)*20,0.9,0.9):rgb()
+          local color = hsv((rating.Rating/10)*100,0.9,0.9):rgb()
           ui.textColored(name,color)
           ui.nextColumn()
           ui.textColored(math.round(rating.Rating,2),color)
@@ -446,9 +446,7 @@ function script.windowMainSettings(dt)
     end
 
     ui.tabItem('settings', function() --settings tab
-      if ui.button('update comfy map') then
-        comfyUpdate('main')
-      end
+      if ui.button('update comfy map') then comfyUpdate('main') end -- update button
       if ui.itemHovered() then ui.setTooltip('click to download and install latest comfy map from github') end
       if ui.checkbox("new render", settings.new_render) then settings.new_render = not settings.new_render end
       if ui.itemHovered() then ui.setTooltip('adds mipmaps to map files to hopefully reduce lag on large tracks') end
