@@ -425,7 +425,14 @@ function script.windowMainSettings(dt)
 
     ui.tabItem('settings', function() --settings tab
       local url = 'https://github.com/Tuttertep/comfy_map/archive/refs/heads/main.zip'
-      if ui.button('update comfy map') then web.loadRemoteAssets(url,function (err, folder) copyFolderContents(folder..'/comfy_map-main/', app_folder) end) end
+      if ui.button('update comfy map') then
+        web.loadRemoteAssets(url,function (err, folder)
+          local downloadFolder = folder..'/comfy_map-main/'
+          local manifest = ac.INIConfig.load(downloadFolder .. '/manifest.ini',ac.INIFormat.Extended)
+          if manifest:get('ABOUT','VERSION',0) < 0.085 then return print('already on newer version') end
+          copyFolderContents(folder..'/comfy_map-main/', app_folder)
+        end)
+      end
       if ui.itemHovered() then ui.setTooltip('click to download and install latest comfy map from github') end
       if ui.checkbox("new render", settings.new_render) then settings.new_render = not settings.new_render end
       if ui.itemHovered() then ui.setTooltip('adds mipmaps to map files to hopefully reduce lag on large tracks') end
