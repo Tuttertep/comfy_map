@@ -2,6 +2,20 @@
 --made by tuttertep
 --i'm already sorry if you read this because everything below is a disaster 😭
 
+--local gcSmooth = 0
+--local gcRuns = 0
+--local gcLast = 0
+--function runGC()
+--  local before = collectgarbage('count')
+--  collectgarbage()
+--  gcSmooth = math.applyLag(gcSmooth, before - collectgarbage('count'), gcRuns < 50 and 0.9 or 0.995, 0.05)
+--  gcRuns = gcRuns + 1
+--  gcLast = math.floor(gcSmooth * 100) / 100
+--end
+--function printGC()
+--  ac.debug("Runtime | collectgarbage", gcLast .. " KB")
+--end
+
 ui.setAsynchronousImagesLoading(true)
 
 local default_colors = stringify{
@@ -192,6 +206,8 @@ function script.windowMain(dt)
   ui.pushClipRect(0, ui.windowSize()) --background
   ui.invisibleButton()
 
+  --runGC()
+  --printGC()
   if windowHovered then --zoom&drag&centering&reset
     if ac.getUI().mouseWheel ~= 0 then
       if (ac.getUI().mouseWheel < 0 and (main_map.size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
@@ -700,7 +716,7 @@ end
 
 function shouldDrawCar(index)
   local car = ac.getCar(index)
-  if sim.isReplayOnlyMode and ((ac.getDriverName(car.index):find('Robo') or ac.getDriverName(car.index):find('Traffic')) or ac.getDriverName(car.index):find('Bot')) then return false end
+  --if sim.isReplayOnlyMode and ((ac.getDriverName(car.index):find('Robo') or ac.getDriverName(car.index):find('Traffic')) or ac.getDriverName(car.index):find('Bot')) then return false end
   return car.isConnected and (not car.isHidingLabels) and car.isActive
 end
 
@@ -714,7 +730,7 @@ function clampName(i)
 end
 
 function drawName(car)
-  if car.name=='' then car.name = clampName(car.index) end
+  if #car.name==0 then car.name = clampName(car.index) end
   if car.index==sim.focusedCar and not settings.ownname then return end
   ui.pushFont(ui.Font.Small)
   ui.setCursor(car.pos2 + namepos - ui.measureText(car.name) * 0.5)
@@ -768,7 +784,7 @@ function onShowWindow() --somehow works?
     ui.decodeImage(map)
     current_map = io.exists(map_mini) and map_mini or  map
     ui.text('map file loading or missing')
-    if ui.isImageReady(current_map) then
+    if (not io.exists(map_mini) and ui.isImageReady(map)) or (io.exists(map_mini) and ui.isImageReady(map_mini) and ui.isImageReady(map) ) then
       first = false
       ini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/data/map.ini'
       config = ac.INIConfig.load(ini):mapSection('PARAMETERS', { SCALE_FACTOR = 1, Z_OFFSET = 1, X_OFFSET = 1, WIDTH=500, HEIGHT=500, MARGIN=20, DRAWING_SIZE=10, MAX_SIZE=1000})
@@ -788,16 +804,14 @@ function onShowWindow() --somehow works?
         canvas = ui.ExtraCanvas(ui.imageSize(current_map),10),
       }
       resetScale(main_map,settings.centered and settings.rotation)
-      main_map.canvas:update(function (dt) ui.drawImage(main_map.image,vec2(),main_map.image_size) end):mipsUpdate()
-
+      main_map.canvas:update(function (dt) ui.drawImage(main_map.image,vec2(),main_map.image_size) end)
       smol_map = {
         image = map,
         image_size = ui.imageSize(map),
         canvas = ui.ExtraCanvas(ui.imageSize(map),10),
       }
       resetScale(smol_map,true)
-      smol_map.canvas:update(function (dt) ui.drawImage(smol_map.image,vec2(),smol_map.image_size) end):mipsUpdate()
-
+      smol_map.canvas:update(function (dt) ui.drawImage(smol_map.image,vec2(),smol_map.image_size) end)
     end
   end
 end
