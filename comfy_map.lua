@@ -257,66 +257,16 @@ function script.windowMain(dt)
 
 
   if settings.teleporting and (not settings.teleporting_mouseover or windowHovered) then --teleports
-
     hoveringTeleport = false
+    calledTeleport = nil
+    calledTeleportAng = 360
+
     for i,j in pairs(collected_teleports) do --teleport config helper points
-      local teleport_position = j.POS
-      local teleport_name = (j.GROUP ~= nil and j.GROUP .. '/' or "") .. j.POINT .. i-1
-      if settings.centered and settings.rotation then teleport_position = (rotation:transformPoint(teleport_position - focusedCar.position) + focusedCar.position) end
-      iconpos:set(teleport_position.x, teleport_position.z):add(config.OFFSETS):scale(main_map.config_scale):add(-main_map.offsets)
-      local h = math.rad(j.HEADING + ac.getCompassAngle(vec.z) + (settings.centered and settings.rotation and rotationangle or 0))
-      dir2:set(math.sin(h), math.cos(h))
-      local color = rgbm.colors.fuchsia
-      if j.LOADED then color = rgbm.colors.purple end
-
-
-      drawTeleport(iconpos, h, color, iconsize)
-      if ui.itemHovered() then ui.setTooltip(teleport_name) hoveringTeleport = true end
-      if ui.itemClicked(ui.MouseButton.Left) then ac.setCurrentCamera(ac.CameraMode.Free) ac.setCameraPosition(j.POS) ac.setCameraDirection(dir3:set(dir2.x,0,dir2.y)) end
-      if ui.itemClicked(ui.MouseButton.Right) then table.remove(collected_teleports, i) end
+      drawTeleport(j,i)
     end
-
     if (sim.isOnlineRace) then --online teleports
-      calledTeleport = nil
-      calledTeleportAng = 360
       for i,j in pairs(teleports1) do
-        local teleport_position = j.POS
-        local teleport_name = (j.GROUP ~= nil and j.GROUP .. '/' or "") .. j.POINT -- .. ' ' .. i-1 .. ' ' .. j.INDEX
-        if settings.centered and settings.rotation then teleport_position = (rotation:transformPoint(teleport_position - focusedCar.position) + focusedCar.position) end
-        iconpos:set(teleport_position.x, teleport_position.z):add(config.OFFSETS):scale(main_map.config_scale):add(-main_map.offsets)
-        local marker = ac.canTeleportToServerPoint(j.INDEX) and markers.teleport_available or markers.teleport_unavailable
-        local color = marker.color
-        local h = math.rad(j.HEADING + ac.getCompassAngle(vec.z) + (settings.centered and settings.rotation and rotationangle or 0))
-        local distance = owncar.position:distance(teleport_position) < 6
-        if distance then
-          color = rgbm.colors.gray
-          if owncar.speedKmh<20 and settings.teleport_warning then
-            ac.setSystemMessage('please move from teleport','you are blocking a teleport')
-          end
-        end
-
-
-        drawTeleport(iconpos, h, color, iconsize*marker.size)
-        if ui.itemClicked(ui.MouseButton.Left) and ac.canTeleportToServerPoint(j.INDEX) then --if multiple point overlap, try to guess intended one
-            if not calledTeleport then calledTeleport = j.INDEX end --this feature is peak gremlin
-            local closest = {distance = 1000000, car = ac.getCar(0)}
-            for k = 1, sim.carsCount - 1 do
-              local car = ac.getCar(k)
-              if shouldDrawCar(k) then
-                local distance = car.position:distance(teleport_position)
-                if distance < closest.distance then
-                  closest['car'] = car closest['distance']  = distance
-                end
-              end
-            end
-            local ang = math.abs((-closest.car.compass - j.HEADING + 180) % 360 - 180)
-            if ang < calledTeleportAng then
-              calledTeleport = j.INDEX calledTeleportAng = ang
-            end
-        end
-
-        if ui.itemHovered() then ui.setTooltip(teleport_name) hoveringTeleport = true end
-        if ui.itemClicked(ui.MouseButton.Right) then ac.sendChatMessage("(comfy map) Teleport to: " .. teleport_name) end
+        drawTeleport(j)
       end
       if calledTeleport~=nil then ac.teleportToServerPoint(calledTeleport) end
     end
@@ -389,7 +339,31 @@ function script.windowMain(dt)
   ui.popClipRect()
 end
 
-function drawTeleport(iconpos, h, color, size)
+function drawTeleport(j,index)
+  local teleport_position = j.POS
+  local teleport_name = (j.GROUP ~= nil and j.GROUP .. '/' or "") .. j.POINT
+  if settings.centered and settings.rotation then teleport_position = (rotation:transformPoint(teleport_position - focusedCar.position) + focusedCar.position) end
+  iconpos:set(teleport_position.x, teleport_position.z):add(config.OFFSETS):scale(main_map.config_scale):add(-main_map.offsets)
+  local h = math.rad(j.HEADING + ac.getCompassAngle(vec.z) + (settings.centered and settings.rotation and rotationangle or 0))
+  local size = iconsize
+  local color = rgbm.colors.fuchsia
+
+  if j.LOADED then
+    color = rgbm.colors.purple
+    if j.ONLINE then
+      local marker = ac.canTeleportToServerPoint(j.INDEX) and markers.teleport_available or markers.teleport_unavailable
+      color = marker.color
+      size = size * marker.size
+      local distance = (owncar.position:distance(j.POS) < 6)
+      if distance then
+        color = rgbm.colors.gray
+        if owncar.speedKmh<20 and settings.teleport_warning then
+          ac.setSystemMessage('please move from teleport','you are blocking a teleport')
+        end
+      end
+    end
+  else teleport_name = teleport_name .. index end
+
   dir2:set(math.sin(h), math.cos(h))
   if settings.new_teleports then
     ui.beginOutline()
@@ -405,6 +379,30 @@ function drawTeleport(iconpos, h, color, size)
   end
   ui.setCursor(iconpos - size)
   ui.dummy(size * 2)
+    if j.ONLINE then
+    if ui.itemClicked(ui.MouseButton.Right) then ac.sendChatMessage("(comfy map) Teleport to: " .. teleport_name) end
+    if ui.itemClicked(ui.MouseButton.Left) and ac.canTeleportToServerPoint(j.INDEX) then --if multiple point overlap, try to guess intended one
+      if not calledTeleport then calledTeleport = j.INDEX end --this feature is peak gremlin
+      local closest = {distance = 1000000, car = ac.getCar(0)}
+      for k = 1, sim.carsCount - 1 do
+        local car = ac.getCar(k)
+        if shouldDrawCar(k) then
+          local distance = car.position:distance(teleport_position)
+          if distance < closest.distance then
+            closest['car'] = car closest['distance']  = distance
+          end
+        end
+      end
+      local ang = math.abs((-closest.car.compass - j.HEADING + 180) % 360 - 180)
+      if ang < calledTeleportAng then
+        calledTeleport = j.INDEX calledTeleportAng = ang
+      end
+    end
+  else
+    if ui.itemClicked(ui.MouseButton.Left) then ac.setCurrentCamera(ac.CameraMode.Free) ac.setCameraPosition(j.POS) ac.setCameraDirection(dir3:set(dir2.x,0,dir2.y)) end
+    if ui.itemClicked(ui.MouseButton.Right) then table.remove(collected_teleports, index) print(index) end
+  end
+  if ui.itemHovered() then ui.setTooltip(teleport_name) hoveringTeleport = true end
 end
 
 function copyFolderContents(sourceFolder, destinationFolder)
@@ -421,22 +419,20 @@ local app_version = manifest:get('ABOUT','VERSION',0.001)
 function comfyUpdate(branch)
   if branch~='dev' and branch~='main' then return end
   local url = 'https://github.com/Tuttertep/comfy_map/archive/refs/heads/' .. branch .. '.zip'
-  local cache = ac.getFolder(ac.FolderID.Root) .. '/cache/remote_assets'
-  io.scanDir(cache,"*",function (folderName, fileAttributes, callbackData)
-    io.scanDir(cache ..'/'.. folderName, 'comfy_map*', function (comfyFolder, fileAttributes, callbackData)
-      io.scanDir(cache .. '/' .. folderName .. '/' .. comfyFolder, "*",function (fileName, fileAttributes, callbackData)
-        io.deleteFile(cache .. '/' .. folderName .. '/' .. comfyFolder .. '/' .. fileName)
-      end)
-      io.deleteDir(cache .. '/' .. folderName .. '/' .. comfyFolder)
-      print('deleted: ' .. comfyFolder)
-    end)
-    io.deleteDir(cache .. '/' .. folderName)
-  end)
-  web.loadRemoteAssets(url,function (err, folder)
-    local downloadFolder = folder..'/comfy_map-' .. branch .. '/'
-    local manifest = ac.INIConfig.load(downloadFolder .. '/manifest.ini',ac.INIFormat.Extended)
-    if manifest:get('ABOUT','VERSION',0) < 0.085 then return print('already on newer version') end
-    copyFolderContents(downloadFolder, app_folder)
+  web.get(url, function (err, response)
+    if err then error(err) end
+    local manifest = io.loadFromZip(response.body, 'comfy_map-' .. branch .. '/manifest.ini')
+    if not manifest then return print('missing manifest') end
+
+    local version = ac.INIConfig.parse(manifest, ac.INIFormat.Extended):get('ABOUT', 'VERSION', 0)
+    if app_version >= version then return print('newer version installed: ' .. app_version .. '>=' .. version) end
+
+    for _, e in ipairs(io.scanZip(response.body)) do
+      local content = io.loadFromZip(response.body, e)
+      if content then
+        if io.save(app_folder .. e:match("/(.*)"), content) then ac.console(e) end
+      end
+    end
   end)
 end
 
@@ -451,7 +447,7 @@ function script.windowMainSettings(dt)
       ui.tabItem('safety ratings', function ()
         ui.columns(2,false)
         for name,rating in pairs(safetyratings) do
-          local color = hsv((rating.Rating/10)*100,0.9,0.9):rgb()
+          local color = hsv((rating.Rating/10)^0.7*100,0.9,0.9):rgb()
           ui.textColored(name,color)
           ui.nextColumn()
           ui.textColored(math.round(rating.Rating,2),color)
@@ -619,8 +615,8 @@ function script.windowMainSettings(dt)
         ui.pushStyleColor(ui.StyleColor.Button, rgbm.colors.purple)
         ui.sameLine() if ui.button("config load") then
           local extra_ini = ac.INIConfig.load(app_folder .. 'extra.ini', ac.INIFormat.Extended)
-          ui.text(extra_ini)
-          collected_teleports = loadTeleports(extra_ini)
+          local localTeleports = loadTeleports(extra_ini)
+          for k,l in pairs(localTeleports) do table.insert(collected_teleports,l) end
         end
         if ui.itemHovered() then ui.setTooltip('load comfy_map/extra.ini') end
         ui.popStyleColor()
@@ -793,7 +789,7 @@ function onShowWindow() --somehow works?
       centered_offset = vec2(0.5,0.5-settings.centered_offset)
       namepos = vec2(settings.namesx, settings.namesy)
       if sim.isOnlineRace then --teleport config
-        teleports1 = loadTeleports(ac.INIConfig.onlineExtras())
+        teleports1 = loadTeleports(ac.INIConfig.onlineExtras(),true)
       end
       loadMarkers()
       loadCars()
@@ -835,7 +831,7 @@ function saveTeleports(collected_teleports)
   return collected_teleports_string
 end
 
-function loadTeleports(ini)
+function loadTeleports(ini,online)
   local teleports, sorted_teleports = {}, {}
 
   for a, b in ini:iterateValues('TELEPORT_DESTINATIONS', 'POINT') do
@@ -856,6 +852,7 @@ function loadTeleports(ini)
     teleports[n]["N"] = n
     teleports[n]['INDEX'] = 0
     teleports[n]['LOADED'] = true
+    teleports[n]['ONLINE'] = online
   end
 
   for i = 1, #teleports do
