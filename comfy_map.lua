@@ -159,7 +159,7 @@ function safetyRating(carIndex)
 end
 
 function fetchRatings()
-  if not sim.isOnlineRace then return end
+  if (not sim.isOnlineRace) or (not sim.isAdmin) then return end
   local url = "http://" .. ac.getServerIP() .. ":" .. ac.getServerPortHTTP() .. "/safetyrating"
     web.get(url, function(err, response)
       local ratings = stringify.parse(response.body)
@@ -405,14 +405,6 @@ function drawTeleport(j,index)
   if ui.itemHovered() then ui.setTooltip(teleport_name) hoveringTeleport = true end
 end
 
-function copyFolderContents(sourceFolder, destinationFolder)
-  for file in io.popen('dir "' .. sourceFolder .. '" /b'):lines() do
-      local sourcePath = sourceFolder .. "/" .. file
-      local destinationPath = destinationFolder .. "/" .. file
-      io.copyFile(sourcePath, destinationPath, false)
-  end
-end
-
 local manifest = ac.INIConfig.load(app_folder .. '/manifest.ini',ac.INIFormat.Extended)
 local app_version = manifest:get('ABOUT','VERSION',0.001)
 
@@ -427,10 +419,10 @@ function comfyUpdate(branch)
     local version = ac.INIConfig.parse(manifest, ac.INIFormat.Extended):get('ABOUT', 'VERSION', 0)
     if app_version >= version then return print('newer version installed: ' .. app_version .. '>=' .. version) end
 
-    for _, e in ipairs(io.scanZip(response.body)) do
-      local content = io.loadFromZip(response.body, e)
+    for _, file in ipairs(io.scanZip(response.body)) do
+      local content = io.loadFromZip(response.body, file)
       if content then
-        if io.save(app_folder .. e:match("/(.*)"), content) then ac.console(e) end
+        if io.save(app_folder .. file:match("/(.*)"), content) then ac.console(file) end
       end
     end
   end)
@@ -440,7 +432,7 @@ function script.windowMainSettings(dt)
   if first then return end
   ui.beginOutline()
   ui.textColored('v'.. app_version .. ' made by tuttertep',pink)
-  if ui.itemClicked(ui.MouseButton.Middle) then comfyUpdate('dev') end -- hidden dev branch button
+  if ui.itemClicked(ui.MouseButton.Middle) and ui.hotkeyCtrl() then comfyUpdate('dev') end -- hidden dev branch button
   ui.tabBar('TabBar', function()
 
     if safetyratings then
@@ -718,7 +710,7 @@ end
 
 function clampName(i)
   if settings.names_length>0 and #ac.getDriverName(i)>settings.names_length then
-    local name = ac.getDriverName(i):gsub("[-|{}]",'')
+    local name = ac.getDriverName(i):gsub("[-|(){}]",'')
     return string.sub(name,1,settings.names_length)
   else
     return ac.getDriverName(i)
@@ -800,7 +792,36 @@ function onShowWindow() --somehow works?
         canvas = ui.ExtraCanvas(ui.imageSize(current_map),10),
       }
       resetScale(main_map,settings.centered and settings.rotation)
-      main_map.canvas:update(function (dt) ui.drawImage(main_map.image,vec2(),main_map.image_size) end)
+      main_map.canvas:update(function (dt)
+        ui.beginOutline()
+        ui.drawImage(main_map.image,vec2(),main_map.image_size)
+        ui.endOutline(rgbm.colors.black)
+        --local ref = ac.emptySceneReference()
+        --local meshes = ac.findMeshes('geo_saku_08_01')
+        --ac.debug('asd',meshes)
+        --for i=1, #meshes do
+        --  meshes:at(i,ref)
+        --  local pos = ref:getPosition()-- + ref:getParent():getPosition()
+        --  print(ref:makeIntersectionWith())
+        --  vec2.tmp():set(pos.x, pos.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
+        --  ui.drawCircleFilled(vec2.tmp(),500,rgbm.colors.green)
+        --end
+        --if ac.hasTrackSpline() then
+        --  for i=0,1,0.001 do
+        --    local start_line = ac.trackProgressToWorldCoordinate(i)
+        --    vec2.tmp():set(start_line.x, start_line.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
+        --    ui.drawCircleFilled(vec2.tmp(),10,rgbm.colors.red)
+        --  end
+        --  --owncar.pitTransform.position
+        --  local start_line = ac.trackProgressToWorldCoordinate(0)
+        --  local start_line1 = start_line + (ac.trackProgressToWorldCoordinate(0.01) - start_line):normalize()*10
+        --  iconpos:set(start_line.x, start_line.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
+        --  vec2.tmp():set(start_line1.x, start_line1.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
+        --  ui.beginOutline()
+        --  ui.drawLine(iconpos,vec2.tmp(),rgbm.colors.cyan,30)
+        --  ui.endOutline(rgbm.colors.black)
+        --end
+      end)
       smol_map = {
         image = map,
         image_size = ui.imageSize(map),
