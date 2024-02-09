@@ -45,7 +45,7 @@ local default_colors = stringify{
   },
   turn_signals = {
     color = rgbm(0,1,0,1),
-    size = 1,
+    size = 0.8,
   },
 }
 
@@ -75,7 +75,7 @@ local defaults = {
   arrow_scaling = true,
   turn_signals = true,
   turn_signals_smol = true,
-  tags = true,
+  tags = false,
 }
 local settings = ac.storage(defaults)
 
@@ -154,28 +154,9 @@ function check(i)
   end
 end
 
-function safetyRating(carIndex)
-  if (not safetyratings) or (not safetyratings[ac.getDriverName(carIndex)]) then return '' end
-  return 'safety rating: ' .. math.round(safetyratings[ac.getDriverName(carIndex)].Rating,2)
-end
-
-function fetchRatings()
-  if (not sim.isOnlineRace) then return end
-  local url = "http://" .. ac.getServerIP() .. ":" .. ac.getServerPortHTTP() .. "/safetyrating"
-    web.get(url, function(err, response)
-      if response.body == "" then return end
-      local ratings = stringify.parse(response.body)
-      safetyratings = {}
-      for i,rating in pairs(ratings) do
-        safetyratings[rating.Name] = rating
-      end
-    end)
-  if ui.onDriverTooltip then
-    if tooltip then tooltip() end
-    tooltip = ui.onDriverTooltip(function (carIndex)
-      ui.text(safetyRating(carIndex))
-    end)
-  end
+function shouldDrawCar(index)
+  local car = ac.getCar(index)
+  return car.isConnected and (not car.isHidingLabels) and car.isActive
 end
 
 function isTagged(i)
@@ -185,7 +166,6 @@ function isTagged(i)
 end
 cars = {}
 function loadCars()
-  fetchRatings()
   cars = {}
   asd1 = nil
   if nametag then nametag() end
@@ -491,20 +471,6 @@ function script.windowMainSettings(dt)
   if ui.itemClicked(ui.MouseButton.Middle) and ui.hotkeyCtrl() then comfyUpdate('dev') end -- hidden dev branch button
   ui.tabBar('TabBar', function()
 
-    if safetyratings then
-      ui.tabItem('safety ratings', function ()
-        ui.columns(2,false)
-        for name,rating in pairs(safetyratings) do
-          local color = hsv((rating.Rating/10)^0.7*100,0.9,0.9):rgb()
-          ui.textColored(name,color)
-          ui.nextColumn()
-          ui.textColored(math.round(rating.Rating,2),color)
-          ui.nextColumn()
-        end
-        ui.columns(1)
-      end)
-    end
-
     ui.tabItem('settings', function() --settings tab
       if coloredButton('update comfy map','click to download and install latest comfy map from github') then comfyUpdate('main') end -- update button
       ccheckbox('new render', 'new_render', 'adds mipmaps to map files to hopefully reduce lag on large tracks')
@@ -551,7 +517,9 @@ function script.windowMainSettings(dt)
       if version<2278 then
         ui.text('\nweird teleports lua has access to (maybe void)')
         for i, j in pairs(ac.SpawnSet) do if ui.button(i) then physics.teleportCarTo(0, j) end ui.sameLine() end
-        ui.newLine(20)
+      end
+      if ac.tryToTeleportToPits then 
+        if coloredButton('teleport to pits',rgbm.colors.green) then ac.tryToTeleportToPits()  end
       end
     end)
 
@@ -601,9 +569,6 @@ function script.windowMainSettings(dt)
 
 
     ui.tabItem('teleport config helper', function() --teleport tab
-      if sim.cameraMode == ac.CameraMode.Free then --button to return to car because pressing f1 is annoying 
-        if ui.button('return camera to car') then ac.setCurrentCamera(ac.CameraMode.Cockpit) end
-      end
 
       if coloredButton('save point','camera position in f7 camera, otherwise car position') then --group logic coming at some point maybe
         local pos3 = ac.getCar(sim.focusedCar).position
@@ -672,6 +637,10 @@ function script.windowMainSettings(dt)
             '      , Y: '  .. math.round(pos3.y+dir3.y,2) ..
             '      , Z: '  .. math.round(pos3.z+dir3.z,2) .. ' }'
           )
+        end
+        if sim.cameraMode == ac.CameraMode.Free then --button to return to car because pressing f1 is annoying 
+          ui.sameLine()
+          if ui.button('return camera to car') then ac.setCurrentCamera(ac.CameraMode.Cockpit) end
         end
 
     end)
@@ -754,12 +723,6 @@ function windowSmol(dt)
   end
 end
 
-function shouldDrawCar(index)
-  local car = ac.getCar(index)
-  --if sim.isReplayOnlyMode and ((ac.getDriverName(car.index):find('Robo') or ac.getDriverName(car.index):find('Traffic')) or ac.getDriverName(car.index):find('Bot')) then return false end
-  return car.isConnected and (not car.isHidingLabels) and car.isActive
-end
-
 function clampName(i)
   if settings.names_length>0 and #ac.getDriverName(i)>settings.names_length then
     local name = ac.getDriverName(i):gsub("[-|(){}]",'')
@@ -779,7 +742,7 @@ function drawName(car)
   ui.text(car.name)
   if ui.itemHovered() then ui.setTooltip(ac.getDriverName(car.index)
                               .. '\n' .. ac.getCarID(car.index)
-                              .. '\n' .. safetyRating(car.index)
+                              .. '\n' .. math.round(ac.getCar(car.index).speedKmh,-1) .. ' km/h'
                             ) end
   ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   ui.popFont()
