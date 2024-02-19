@@ -164,14 +164,19 @@ function isTagged(i)
   if ac.DriverTags then return ac.DriverTags(name).color~=rgbm.colors.white end
   return ac.isTaggedAsFriend(name)
 end
-cars = {}
+--cars = {}
 function loadCars()
   cars = {}
+  traffic = {}
   asd1 = nil
   if nametag then nametag() end
   for i=0, sim.carsCount-1 do
     check(i)
-    table.insert(cars,{index = i,name = "",pos2=vec2()})
+    if ac.getCar(i).isHidingLabels or (sim.isReplayOnlyMode and ac.getDriverName(i):find('Traffic')) then
+      table.insert(traffic,{index = i,name = "",pos2=vec2()})
+    else
+      table.insert(cars,{index = i,name = "",pos2=vec2()})
+    end
   end
   table.sort(cars, function (a,b)
     if a.index*b.index==0 then return b.index==0 end
@@ -187,15 +192,35 @@ if ac.accessAppWindow then
 end
 function vec2Inside(point,square) return point.x>0 and point.y>0 and point.x<square.x and point.y<square.y end
 
+function script.onShowWindow() --reset window positions
+  local screenSize = ac.getUI().windowSize
+  if ac.accessAppWindow and not vec2Inside(comfyMainWindow:position(),screenSize) then
+    comfyMainWindow:move(vec2(100,100)) print('main map outside screen')
+  end
+  if ac.accessAppWindow and not vec2Inside(comfySmolWindow:position(),screenSize) then
+    comfySmolWindow:move(vec2(100,100)) print('smol map outside screen')
+  end
+end
+
+function drawTraffic(map)
+  for i,j in pairs(traffic) do
+    local car = ac.getCar(j.index)
+    if car.isActive and car.brake>0.1 then
+      pos3:set(car.position)
+      if map.centered and map.rotation then
+        pos3 = rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position
+      end
+      pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(map.config_scale):add(-map.offsets)
+      ui.beginOutline()
+      ui.drawIcon(ui.Icons.Warning,pos2-iconsize*2,pos2+iconsize*2,rgbm.colors.orange)
+      ui.endOutline(rgbm.colors.black)
+    end
+  end
+end
+
 function script.windowMain(dt)
   if version < 2000 then ui.text(versionerror) return end
-  onShowWindow()
-  if first then return end
-  local windowPos = ui.windowPos()
-  local screenSize = ac.getUI().windowSize
-  if ac.accessAppWindow and not vec2Inside(windowPos,screenSize) then
-    comfyMainWindow:move(vec2(100,100))
-  end
+  if first then onShowWindow1() return end
   ui.pushClipRect(0, ui.windowSize()) --background
   ui.invisibleButton()
 
@@ -214,14 +239,14 @@ function script.windowMain(dt)
       end
     end
     if ui.mouseClicked(2) then --toggle centering with middle click
-      if settings.centered then resetScale(main_map) end
       settings.centered = not settings.centered
+      resetScale(main_map)
     end
   end
 
   focusedCar = ac.getCar(sim.focusedCar)
 
-  drawMap(main_map, settings.centered, settings.rotation)
+  drawMap(main_map)
 
   for i,j in pairs(cars) do
     local car = ac.getCar(j.index)
@@ -242,6 +267,9 @@ function script.windowMain(dt)
 
     end
   end
+
+  drawTraffic(main_map)
+
   for i,j in pairs(cars) do
     if shouldDrawCar(j.index) then
       if settings.names and (not settings.names_mouseover or windowHovered) then drawName(j) end
@@ -330,7 +358,7 @@ end
 
 function checkTeleportAvailability(teleport)
   for i=0, sim.carsCount-1 do
-    if ac.getCar(i).position:distance(teleport.POS)<6 then
+    if ac.getCar(i).position:distanceSquared(teleport.POS)<(6^2) then
       return ac.getCar(i):driverName()
     end
   end
@@ -640,7 +668,7 @@ function script.windowMainSettings(dt)
         end
         if sim.cameraMode == ac.CameraMode.Free then --button to return to car because pressing f1 is annoying 
           ui.sameLine()
-          if ui.button('return camera to car') then ac.setCurrentCamera(ac.CameraMode.Cockpit) end
+          if coloredButton('return camera to car','f4 also does this') then ac.setCurrentCamera(ac.CameraMode.Cockpit) end
         end
 
     end)
@@ -648,20 +676,23 @@ function script.windowMainSettings(dt)
   ui.endOutline(rgbm.colors.black)
 end
 
-function resetScale(map,zoomed)
+function resetScale(map)
+  local zoomed = map.centered and map.rotation
   local extra_space = ui.windowSize()*0.01
   map.offsets = -padding - extra_space
   map.image_size = ui.imageSize(map.image) or vec2(config.WIDTH,config.HEIGHT)
   local windowSize = ui.windowSize()-padding-extra_space*2
   map.scale = math.min(windowSize.x / map.image_size.x, windowSize.y / map.image_size.y)
   if zoomed then map.scale = settings.centered_zoom end
+  ac.debug('zoomed',zoomed)
   map.size = map.image_size * map.scale
   map.config_scale = map.scale / config.SCALE_FACTOR
 
 end
 
 
-function drawMap(map,centered,rotate)
+function drawMap(map)
+  local centered,rotate = map.centered,map.rotation
   if centered then --center on car and rotate
     map.offsets:set(focusedCar.position.x, focusedCar.position.z):add(config.OFFSETS):scale(map.scale / config.SCALE_FACTOR):add(-ui.windowSize()*centered_offset) --autocenter
 
@@ -687,23 +718,16 @@ end
 
 function windowSmol(dt)
   if version < 2000 then ui.text(versionerror) return end
-  onShowWindow()
-  if first then return end
-
-  local windowPos = ui.windowPos()
-  local screenSize = ac.getUI().windowSize
-  if ac.accessAppWindow and not vec2Inside(windowPos,screenSize) then
-    comfySmolWindow:move(vec2(100,100))
-  end
-
+  if first then onShowWindow1() return end
   ui.invisibleButton()
   if ui.windowHovered() and ui.mouseWheel() then
     smol_map.scale = smol_map.scale * (1 + 0.1 * ui.mouseWheel())
     smol_map.size = smol_map.image_size*smol_map.scale
+    smol_map.config_scale = smol_map.scale/config.SCALE_FACTOR
   end
   focusedCar = ac.getCar(sim.focusedCar)
 
-  drawMap(smol_map,true,true)
+  drawMap(smol_map)
 
   for i,j in pairs(cars) do  --draw stuff on small map
     local car = ac.getCar(j.index)
@@ -711,13 +735,14 @@ function windowSmol(dt)
       j.color, j.size = getPlayerColor(j.index)
       pos3:set(rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position)
       dir3:set(rotation:transformPoint(car.look))
-      pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(smol_map.scale / config.SCALE_FACTOR):add(-smol_map.offsets)
+      pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(smol_map.config_scale):add(-smol_map.offsets)
       dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and smol_map.scale^0.3 or 1):scale(settings.arrowsize_smol):scale(j.size)
       dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and smol_map.scale^0.3 or 1):scale(settings.arrowsize_smol):scale(j.size)
       drawArrow(car, j.color,settings.turn_signals_smol)
       j.pos2:set(pos2.x,pos2.y)
     end
   end
+  drawTraffic(smol_map)
   for i,j in pairs(cars) do
     if settings.names_smol and (not settings.names_smol_mouseover or ui.windowHovered()) and shouldDrawCar(j.index) then drawName(j) end
   end
@@ -740,10 +765,12 @@ function drawName(car)
   --ui.drawLine(car.pos2, car.pos2 + namepos , car.color, 2)
   ui.beginOutline()
   ui.text(car.name)
-  if ui.itemHovered() then ui.setTooltip(ac.getDriverName(car.index)
-                              .. '\n' .. ac.getCarID(car.index)
-                              .. '\n' .. math.round(ac.getCar(car.index).speedKmh,-1) .. ' km/h'
-                            ) end
+  if ui.itemHovered() then
+    ui.setTooltip(ac.getDriverName(car.index)
+       .. '\n' .. ac.getCarID(car.index)
+       .. '\n' .. math.round(ac.getCar(car.index).speedKmh,-1) .. ' km/h'
+    )
+  end
   ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   ui.popFont()
   if ui.itemClicked(1) and not hoveringTeleport and settings.names_spectate then ac.focusCar(car.index) end
@@ -778,73 +805,54 @@ function drawArrow(car,color,signals)
   ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
 end
 
-function onShowWindow() --somehow works?
-  if first then
-    if version < 2000 then return end
-    map_mini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map_mini.png'
-    map = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map.png'
-    ui.decodeImage(map_mini)
-    ui.decodeImage(map)
-    current_map = io.exists(map_mini) and map_mini or  map
-    ui.text('map file loading or missing')
-    if (not io.exists(map_mini) and ui.isImageReady(map)) or (io.exists(map_mini) and ui.isImageReady(map_mini) and ui.isImageReady(map) ) then
-      first = false
-      ini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/data/map.ini'
-      config = ac.INIConfig.load(ini):mapSection('PARAMETERS', { SCALE_FACTOR = 1, Z_OFFSET = 1, X_OFFSET = 1, WIDTH=500, HEIGHT=500, MARGIN=20, DRAWING_SIZE=10, MAX_SIZE=1000})
-      config.OFFSETS = vec2(config.X_OFFSET, config.Z_OFFSET)
-
-      centered_offset = vec2(0.5,0.5-settings.centered_offset)
-      namepos = vec2(settings.namesx, settings.namesy)
-      if sim.isOnlineRace then --teleport config
-        teleports1 = loadTeleports(ac.INIConfig.onlineExtras(),true)
-      end
-      loadMarkers()
-      loadCars()
-
-      main_map = {
-        image = current_map,
-        image_size = ui.imageSize(current_map),
-        canvas = ui.ExtraCanvas(ui.imageSize(current_map),10),
-      }
-      resetScale(main_map,settings.centered and settings.rotation)
-      main_map.canvas:update(function (dt)
-        --ui.beginOutline()
-        ui.drawImage(main_map.image,vec2(),main_map.image_size)
-        --ui.endOutline(rgbm.colors.black)
-        --local ref = ac.emptySceneReference()
-        --local meshes = ac.findMeshes('geo_saku_08_01')
-        --ac.debug('asd',meshes)
-        --for i=1, #meshes do
-        --  meshes:at(i,ref)
-        --  local pos = ref:getPosition()-- + ref:getParent():getPosition()
-        --  print(ref:makeIntersectionWith())
-        --  vec2.tmp():set(pos.x, pos.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
-        --  ui.drawCircleFilled(vec2.tmp(),500,rgbm.colors.green)
-        --end
-        --if ac.hasTrackSpline() then
-        --  for i=0,1,0.001 do
-        --    local start_line = ac.trackProgressToWorldCoordinate(i)
-        --    vec2.tmp():set(start_line.x, start_line.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
-        --    ui.drawCircleFilled(vec2.tmp(),10,rgbm.colors.red)
-        --  end
-        --  --owncar.pitTransform.position
-        --  local start_line = ac.trackProgressToWorldCoordinate(0)
-        --  local start_line1 = start_line + (ac.trackProgressToWorldCoordinate(0.01) - start_line):normalize()*10
-        --  iconpos:set(start_line.x, start_line.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
-        --  vec2.tmp():set(start_line1.x, start_line1.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
-        --  ui.beginOutline()
-        --  ui.drawLine(iconpos,vec2.tmp(),rgbm.colors.cyan,30)
-        --  ui.endOutline(rgbm.colors.black)
-        --end
-      end)
-      smol_map = {
-        image = map,
-        image_size = ui.imageSize(map),
-        canvas = ui.ExtraCanvas(ui.imageSize(map),10),
-      }
-      resetScale(smol_map,true)
-      smol_map.canvas:update(function (dt) ui.drawImage(smol_map.image,vec2(),smol_map.image_size) end)
+function onShowWindow1() --somehow works?
+  if version < 2000 then return end
+  map_mini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map_mini.png'
+  map = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map.png'
+  ui.decodeImage(map_mini)
+  ui.decodeImage(map)
+  current_map = io.exists(map_mini) and map_mini or  map
+  ui.text('map file loading or missing')
+  if (not io.exists(map_mini) and ui.isImageReady(map)) or (io.exists(map_mini) and ui.isImageReady(map_mini) and ui.isImageReady(map) ) then
+    first = false
+    ini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/data/map.ini'
+    config = ac.INIConfig.load(ini):mapSection('PARAMETERS', { SCALE_FACTOR = 1, Z_OFFSET = 1, X_OFFSET = 1, WIDTH=500, HEIGHT=500, MARGIN=20, DRAWING_SIZE=10, MAX_SIZE=1000})
+    config.OFFSETS = vec2(config.X_OFFSET, config.Z_OFFSET)
+    centered_offset = vec2(0.5,0.5-settings.centered_offset)
+    namepos = vec2(settings.namesx, settings.namesy)
+    if sim.isOnlineRace then --teleport config
+      teleports1 = loadTeleports(ac.INIConfig.onlineExtras(),true)
     end
+    loadMarkers()
+    loadCars()
+    main_map = {
+      image = current_map,
+      image_size = ui.imageSize(current_map),
+      canvas = ui.ExtraCanvas(ui.imageSize(current_map),10),
+      --rotation = function () return settings.rotation end,
+      --centered = function () return settings.centered end,
+    }
+    setmetatable(main_map,{
+      __index = function(tbl, key)
+          if key == "rotation" then return settings.rotation end
+          if key == "centered" then return settings.centered end
+          return rawget(tbl, key)
+      end,
+    })
+  
+    resetScale(main_map)
+    main_map.canvas:update(function (dt)
+      ui.drawImage(main_map.image,vec2(),main_map.image_size)
+    end)
+    smol_map = {
+      image = map,
+      image_size = ui.imageSize(map),
+      canvas = ui.ExtraCanvas(ui.imageSize(map),10),
+      rotation = true,
+      centered = true,
+    }
+    resetScale(smol_map)
+    smol_map.canvas:update(function (dt) ui.drawImage(smol_map.image,vec2(),smol_map.image_size) end)
   end
 end
 
