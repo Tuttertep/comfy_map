@@ -205,7 +205,7 @@ end
 function drawTraffic(map)
   for i,j in pairs(traffic) do
     local car = ac.getCar(j.index)
-    if car.isActive and car.brake>0.1 then
+    if car.isActive and (car.brake>0.1 or car.hazardLights or car.speedKmh<50) then
       pos3:set(car.position)
       if map.centered and map.rotation then
         pos3 = rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position
@@ -219,6 +219,7 @@ function drawTraffic(map)
 end
 
 function script.windowMain(dt)
+  render.measure('comfy_map',function ()
   if version < 2000 then ui.text(versionerror) return end
   if first then onShowWindow1() return end
   ui.pushClipRect(0, ui.windowSize()) --background
@@ -237,6 +238,7 @@ function script.windowMain(dt)
       else
         resetScale(main_map)
       end
+      updateCanvas(main_map)
     end
     if ui.mouseClicked(2) then --toggle centering with middle click
       settings.centered = not settings.centered
@@ -315,6 +317,9 @@ function script.windowMain(dt)
     local raycastheight = 3000
     pos3:set(pos2.x, raycastheight, pos2.y)
     local initialray = physics.raycastTrack(pos3,-vec.y,raycastheight*2)
+    if initialray~=-1 and sim.cameraMode == ac.CameraMode.Free then --freecam stuff
+      return ac.setCameraPosition(pos3-vec.y*(initialray-3))
+    end
 
     local normalize3Dto2Dto3D = function (vector)
       local temp = vec2(vector.x,vector.z):normalize()
@@ -335,9 +340,7 @@ function script.windowMain(dt)
     pos3:set(pos2.x, raycastheight-initialray+3, pos2.y)
 
     if allow then
-      if sim.cameraMode == ac.CameraMode.Free then --freecam stuff
-        ac.setCameraPosition(pos3)
-      elseif owncar.physicsAvailable then
+      if owncar.physicsAvailable then
         physics.setCarPosition(0,pos3,-owncar.look)
       end
       allow = false
@@ -353,6 +356,7 @@ function script.windowMain(dt)
   end
 
   ui.popClipRect()
+end)
 end
 
 
@@ -581,6 +585,18 @@ function script.windowMainSettings(dt)
         ui.nextColumn()
       end
 
+      if ui.button('reload comfy map') then
+        ui.unloadImage(main_map.image)
+        ui.unloadImage(smol_map.image)
+        ui.unloadImage(map)
+        ui.unloadImage(map_mini)
+        main_map.canvas:dispose()
+        smol_map.canvas:dispose()
+        main_map = nil
+        smol_map = nil
+        onShowWindow1()
+      end
+
       if ui.button('reset settings') then
         markers = stringify.parse(default_colors)
         for i,j in pairs(defaults) do
@@ -690,6 +706,14 @@ function resetScale(map)
 
 end
 
+function updateCanvas(map)
+  map.canvas:dispose()
+  map.canvas = ui.ExtraCanvas(map.image_size*math.clamp(map.scale,0.1,1))
+  map.canvas:update(function (dt)
+    --ui.drawImage(map.image, vec.empty2, map.image_size*math.clamp(map.scale,0.1,1))
+    ui.image(map.image,map.canvas:size(), ui.ImageFit.Fit)
+  end)
+end
 
 function drawMap(map)
   local centered,rotate = map.centered,map.rotation
@@ -705,7 +729,7 @@ function drawMap(map)
 
   ui.beginOutline()
   if settings.new_render then
-    ui.drawImage(map.canvas, -map.offsets, -map.offsets + map.size, markers.map.color) --map image
+    ui.drawImage(map.canvas, -map.offsets,  -map.offsets + map.size, markers.map.color) --map image
   else
     ui.drawImage(map.image, -map.offsets, -map.offsets + map.size, markers.map.color) --map image
   end
@@ -720,10 +744,11 @@ function windowSmol(dt)
   if version < 2000 then ui.text(versionerror) return end
   if first then onShowWindow1() return end
   ui.invisibleButton()
-  if ui.windowHovered() and ui.mouseWheel() then
+  if ui.windowHovered() and ui.mouseWheel()~=0 then
     smol_map.scale = smol_map.scale * (1 + 0.1 * ui.mouseWheel())
     smol_map.size = smol_map.image_size*smol_map.scale
     smol_map.config_scale = smol_map.scale/config.SCALE_FACTOR
+    updateCanvas(smol_map)
   end
   focusedCar = ac.getCar(sim.focusedCar)
 
@@ -809,8 +834,6 @@ function onShowWindow1() --somehow works?
   if version < 2000 then return end
   map_mini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map_mini.png'
   map = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map.png'
-  ui.decodeImage(map_mini)
-  ui.decodeImage(map)
   current_map = io.exists(map_mini) and map_mini or  map
   ui.text('map file loading or missing')
   if (not io.exists(map_mini) and ui.isImageReady(map)) or (io.exists(map_mini) and ui.isImageReady(map_mini) and ui.isImageReady(map) ) then
@@ -828,9 +851,7 @@ function onShowWindow1() --somehow works?
     main_map = {
       image = current_map,
       image_size = ui.imageSize(current_map),
-      canvas = ui.ExtraCanvas(ui.imageSize(current_map),10),
-      --rotation = function () return settings.rotation end,
-      --centered = function () return settings.centered end,
+      canvas = ui.ExtraCanvas(ui.imageSize(current_map)/5),
     }
     setmetatable(main_map,{
       __index = function(tbl, key)
@@ -842,17 +863,47 @@ function onShowWindow1() --somehow works?
   
     resetScale(main_map)
     main_map.canvas:update(function (dt)
-      ui.drawImage(main_map.image,vec2(),main_map.image_size)
+      --ui.drawImage(main_map.image,vec2(),main_map.image_size/5)
+      ui.image(main_map.image,main_map.canvas:size(), ui.ImageFit.Fit)
+
+      --local ref = ac.emptySceneReference()
+      --local meshes = ac.findMeshes('geo_saku_08_01')
+      --ac.debug('asd',meshes)
+      --for i=1, #meshes do
+      --  meshes:at(i,ref)
+      --  local pos = ref:getPosition()-- + ref:getParent():getPosition()
+      --  print(ref:makeIntersectionWith())
+      --  vec2.tmp():set(pos.x, pos.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
+      --  ui.drawCircleFilled(vec2.tmp(),500,rgbm.colors.green)
+      --end
+      --if ac.hasTrackSpline() then
+      --  for i=0,1,0.001 do
+      --    local start_line = ac.trackProgressToWorldCoordinate(i)
+      --    vec2.tmp():set(start_line.x, start_line.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
+      --    ui.drawCircleFilled(vec2.tmp(),10,rgbm.colors.red)
+      --  end
+      --  --owncar.pitTransform.position
+      --  local start_line = ac.trackProgressToWorldCoordinate(0)
+      --  local start_line1 = start_line + (ac.trackProgressToWorldCoordinate(0.01) - start_line):normalize()*10
+      --  iconpos:set(start_line.x, start_line.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
+      --  vec2.tmp():set(start_line1.x, start_line1.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
+      --  ui.beginOutline()
+      --  ui.drawLine(iconpos,vec2.tmp(),rgbm.colors.cyan,30)
+      --  ui.endOutline(rgbm.colors.black)
+      --end
     end)
     smol_map = {
       image = map,
       image_size = ui.imageSize(map),
-      canvas = ui.ExtraCanvas(ui.imageSize(map),10),
+      canvas = ui.ExtraCanvas(ui.imageSize(map)/5),
       rotation = true,
       centered = true,
     }
     resetScale(smol_map)
-    smol_map.canvas:update(function (dt) ui.drawImage(smol_map.image,vec2(),smol_map.image_size) end)
+    smol_map.canvas:update(function (dt)
+      --ui.drawImage(smol_map.image,vec2(),smol_map.image_size)
+      ui.image(smol_map.image,smol_map.canvas:size(), ui.ImageFit.Fit)
+    end)
   end
 end
 
