@@ -2,20 +2,6 @@
 --made by tuttertep
 --i'm already sorry if you read this because everything below is a disaster 😭
 
---local gcSmooth = 0
---local gcRuns = 0
---local gcLast = 0
---function runGC()
---  local before = collectgarbage('count')
---  collectgarbage()
---  gcSmooth = math.applyLag(gcSmooth, before - collectgarbage('count'), gcRuns < 50 and 0.9 or 0.995, 0.05)
---  gcRuns = gcRuns + 1
---  gcLast = math.floor(gcSmooth * 100) / 100
---end
---function printGC()
---  ac.debug("Runtime | collectgarbage", gcLast .. " KB")
---end
-
 ui.setAsynchronousImagesLoading(true)
 
 local default_colors = stringify{
@@ -76,6 +62,7 @@ local defaults = {
   turn_signals = true,
   turn_signals_smol = true,
   tags = false,
+  main_map_mouseover = false
 }
 local settings = ac.storage(defaults)
 
@@ -219,14 +206,12 @@ function drawTraffic(map)
 end
 
 function script.windowMain(dt)
-  render.measure('comfy_map',function ()
+  if settings.main_map_mouseover and not ui.windowHovered(105) then return end
   if version < 2000 then ui.text(versionerror) return end
   if first then onShowWindow1() return end
   ui.pushClipRect(0, ui.windowSize()) --background
   ui.invisibleButton()
 
-  --runGC()
-  --printGC()
   if windowHovered then --zoom&drag&centering&reset
     if ac.getUI().mouseWheel ~= 0 then
       if (ac.getUI().mouseWheel < 0 and (main_map.size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
@@ -356,7 +341,6 @@ function script.windowMain(dt)
   end
 
   ui.popClipRect()
-end)
 end
 
 
@@ -505,7 +489,7 @@ function script.windowMainSettings(dt)
 
     ui.tabItem('settings', function() --settings tab
       if coloredButton('update comfy map','click to download and install latest comfy map from github') then comfyUpdate('main') end -- update button
-      ccheckbox('new render', 'new_render', 'adds mipmaps to map files to hopefully reduce lag on large tracks')
+      ccheckbox('new render', 'new_render', 'redraw canvas after zooming to avoid drawing full size image when it is not necessary')
       ccheckbox("follow player", 'centered', 'middle clicking map also toggles this')
       if settings.centered then
         ui.indent()
@@ -520,8 +504,8 @@ function script.windowMainSettings(dt)
         ccheckbox("warning when blocking a teleport", 'teleport_warning')
         ui.unindent()
       end
-
-      ccheckbox("names", 'names')
+      ccheckbox("hide when not hovered", "main_map_mouseover", "hide main map when not hovered")
+      ccheckbox("main map names", 'names')
       if settings.names then
         ui.indent()
         ccheckbox("mouseover only##names", 'names_mouseover')
@@ -571,15 +555,18 @@ function script.windowMainSettings(dt)
         ui.sameLine() ui.text(i)
         ui.nextColumn()
         if j.size~=nil then
-          ui.setNextItemWidth(120)
+          ui.setNextItemWidth(100)
           j.size = ui.slider('##' .. i .. 'size', j.size, 0,2, 'size' .. ': %.2f')
           if ui.itemEdited() then changed = true end
         end
         if i=='friend' then ui.sameLine() ccheckbox("##friends", 'friends') end
-        if i=='turn_signals' and version>2051 then ui.sameLine() ccheckbox("##turn signals", 'turn_signals', 'signals on main') ui.sameLine() ccheckbox('##turn signals_smol','turn_signals_smol','signals on smol') end
+        if i=='turn_signals' and version>2051 then
+          ui.sameLine() ccheckbox("##turn signals", 'turn_signals', 'signals on main')
+          ui.sameLine() ccheckbox('##turn signals_smol','turn_signals_smol','signals on smol')
+        end
         if i=='map' then
-          ui.setNextItemWidth(120)
-          settings.centered_zoom, changedzoom = ui.slider('##' .. 'default zoom', settings.centered_zoom, 0.1, 2, 'default zoom' .. ': %.1f')
+          ui.setNextItemWidth(100)
+          settings.centered_zoom, changedzoom = ui.slider('##' .. 'zoom', settings.centered_zoom, 0.1, 2, 'zoom' .. ': %.1f')
           if changedzoom then smol_map.scale = settings.centered_zoom end
         end
         ui.nextColumn()
@@ -716,6 +703,7 @@ function updateCanvas(map)
 end
 
 function drawMap(map)
+  if first then updateCanvas(map) end
   local centered,rotate = map.centered,map.rotation
   if centered then --center on car and rotate
     map.offsets:set(focusedCar.position.x, focusedCar.position.z):add(config.OFFSETS):scale(map.scale / config.SCALE_FACTOR):add(-ui.windowSize()*centered_offset) --autocenter
@@ -863,34 +851,7 @@ function onShowWindow1() --somehow works?
   
     resetScale(main_map)
     main_map.canvas:update(function (dt)
-      --ui.drawImage(main_map.image,vec2(),main_map.image_size/5)
       ui.image(main_map.image,main_map.canvas:size(), ui.ImageFit.Fit)
-
-      --local ref = ac.emptySceneReference()
-      --local meshes = ac.findMeshes('geo_saku_08_01')
-      --ac.debug('asd',meshes)
-      --for i=1, #meshes do
-      --  meshes:at(i,ref)
-      --  local pos = ref:getPosition()-- + ref:getParent():getPosition()
-      --  print(ref:makeIntersectionWith())
-      --  vec2.tmp():set(pos.x, pos.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
-      --  ui.drawCircleFilled(vec2.tmp(),500,rgbm.colors.green)
-      --end
-      --if ac.hasTrackSpline() then
-      --  for i=0,1,0.001 do
-      --    local start_line = ac.trackProgressToWorldCoordinate(i)
-      --    vec2.tmp():set(start_line.x, start_line.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
-      --    ui.drawCircleFilled(vec2.tmp(),10,rgbm.colors.red)
-      --  end
-      --  --owncar.pitTransform.position
-      --  local start_line = ac.trackProgressToWorldCoordinate(0)
-      --  local start_line1 = start_line + (ac.trackProgressToWorldCoordinate(0.01) - start_line):normalize()*10
-      --  iconpos:set(start_line.x, start_line.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
-      --  vec2.tmp():set(start_line1.x, start_line1.z):add(config.OFFSETS):scale(1/config.SCALE_FACTOR)
-      --  ui.beginOutline()
-      --  ui.drawLine(iconpos,vec2.tmp(),rgbm.colors.cyan,30)
-      --  ui.endOutline(rgbm.colors.black)
-      --end
     end)
     smol_map = {
       image = map,
