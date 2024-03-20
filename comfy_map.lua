@@ -62,7 +62,8 @@ local defaults = {
   turn_signals = true,
   turn_signals_smol = true,
   tags = false,
-  main_map_mouseover = false
+  main_map_mouseover = false,
+  traffic_warnings = true
 }
 local settings = ac.storage(defaults)
 
@@ -192,7 +193,8 @@ end
 function drawTraffic(map)
   for i,j in pairs(traffic) do
     local car = ac.getCar(j.index)
-    if car.isActive and (car.brake>0.1 or car.hazardLights or car.speedKmh<50) then
+    --if car.isActive and (car.brake>0.1 or car.hazardLights or car.speedKmh<50) then
+    if car.isActive and car.speedKmh<50 then
       pos3:set(car.position)
       if map.centered and map.rotation then
         pos3 = rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position
@@ -220,10 +222,10 @@ function script.windowMain(dt)
         main_map.size = main_map.image_size * main_map.scale
         main_map.config_scale = main_map.scale / config.SCALE_FACTOR
         main_map.offsets = main_map.offsets + (main_map.size - old) * (main_map.offsets + ui.mouseLocalPos()) / old -- DON'T touch, powered by dark magic
+        updateCanvas(main_map)
       else
         resetScale(main_map)
       end
-      updateCanvas(main_map)
     end
     if ui.mouseClicked(2) then --toggle centering with middle click
       settings.centered = not settings.centered
@@ -255,7 +257,7 @@ function script.windowMain(dt)
     end
   end
 
-  drawTraffic(main_map)
+  if settings.traffic_warnings then drawTraffic(main_map) end
 
   for i,j in pairs(cars) do
     if shouldDrawCar(j.index) then
@@ -505,6 +507,7 @@ function script.windowMainSettings(dt)
         ui.unindent()
       end
       ccheckbox("hide when not hovered", "main_map_mouseover", "hide main map when not hovered")
+      ccheckbox("traffic warnings", "traffic_warnings", "warning triangles on stopped or slowed down traffic")
       ccheckbox("main map names", 'names')
       if settings.names then
         ui.indent()
@@ -687,23 +690,20 @@ function resetScale(map)
   local windowSize = ui.windowSize()-padding-extra_space*2
   map.scale = math.min(windowSize.x / map.image_size.x, windowSize.y / map.image_size.y)
   if zoomed then map.scale = settings.centered_zoom end
-  ac.debug('zoomed',zoomed)
   map.size = map.image_size * map.scale
   map.config_scale = map.scale / config.SCALE_FACTOR
-
+  if settings.new_render then updateCanvas(map) end
 end
 
 function updateCanvas(map)
   map.canvas:dispose()
   map.canvas = ui.ExtraCanvas(map.image_size*math.clamp(map.scale,0.1,1))
   map.canvas:update(function (dt)
-    --ui.drawImage(map.image, vec.empty2, map.image_size*math.clamp(map.scale,0.1,1))
-    ui.image(map.image,map.canvas:size(), ui.ImageFit.Fit)
+    ui.image(map.image,map.canvas:size())
   end)
 end
 
 function drawMap(map)
-  if first then updateCanvas(map) end
   local centered,rotate = map.centered,map.rotation
   if centered then --center on car and rotate
     map.offsets:set(focusedCar.position.x, focusedCar.position.z):add(config.OFFSETS):scale(map.scale / config.SCALE_FACTOR):add(-ui.windowSize()*centered_offset) --autocenter
@@ -755,7 +755,7 @@ function windowSmol(dt)
       j.pos2:set(pos2.x,pos2.y)
     end
   end
-  drawTraffic(smol_map)
+  if settings.traffic_warnings then drawTraffic(smol_map) end
   for i,j in pairs(cars) do
     if settings.names_smol and (not settings.names_smol_mouseover or ui.windowHovered()) and shouldDrawCar(j.index) then drawName(j) end
   end
@@ -818,13 +818,38 @@ function drawArrow(car,color,signals)
   ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
 end
 
+
+map_mini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map_mini.png'
+map = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map.png'
+
+function newMap(file,is_main)
+  local map = {
+    image = file,
+    image_size = ui.imageSize(file),
+    canvas = ui.ExtraCanvas(1),
+  }
+  if is_main then
+    setmetatable(map,{
+      __index = function(tbl, key)
+          if key == "rotation" then return settings.rotation end
+          if key == "centered" then return settings.centered end
+          return rawget(tbl, key)
+      end,
+    })
+  else
+    map.rotation = true
+    map.centered = true
+  end
+  return map
+end
+
+
 function onShowWindow1() --somehow works?
-  if version < 2000 then return end
-  map_mini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map_mini.png'
-  map = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map.png'
+  if (not first) or (version < 2000) then return end
   current_map = io.exists(map_mini) and map_mini or  map
   ui.text('map file loading or missing')
-  if (not io.exists(map_mini) and ui.isImageReady(map)) or (io.exists(map_mini) and ui.isImageReady(map_mini) and ui.isImageReady(map) ) then
+  if io.exists(map_mini) and (not ui.isImageReady(map_mini)) or io.exists(map) and (not ui.isImageReady(map)) then return end
+--  if (not io.exists(map_mini) and ui.isImageReady(map)) or (io.exists(map_mini) and ui.isImageReady(map_mini) and ui.isImageReady(map) ) then
     first = false
     ini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/data/map.ini'
     config = ac.INIConfig.load(ini):mapSection('PARAMETERS', { SCALE_FACTOR = 1, Z_OFFSET = 1, X_OFFSET = 1, WIDTH=500, HEIGHT=500, MARGIN=20, DRAWING_SIZE=10, MAX_SIZE=1000})
@@ -836,36 +861,12 @@ function onShowWindow1() --somehow works?
     end
     loadMarkers()
     loadCars()
-    main_map = {
-      image = current_map,
-      image_size = ui.imageSize(current_map),
-      canvas = ui.ExtraCanvas(ui.imageSize(current_map)/5),
-    }
-    setmetatable(main_map,{
-      __index = function(tbl, key)
-          if key == "rotation" then return settings.rotation end
-          if key == "centered" then return settings.centered end
-          return rawget(tbl, key)
-      end,
-    })
-  
+    main_map = newMap(current_map, true)
     resetScale(main_map)
-    main_map.canvas:update(function (dt)
-      ui.image(main_map.image,main_map.canvas:size(), ui.ImageFit.Fit)
-    end)
-    smol_map = {
-      image = map,
-      image_size = ui.imageSize(map),
-      canvas = ui.ExtraCanvas(ui.imageSize(map)/5),
-      rotation = true,
-      centered = true,
-    }
+
+    smol_map = newMap(map)
     resetScale(smol_map)
-    smol_map.canvas:update(function (dt)
-      --ui.drawImage(smol_map.image,vec2(),smol_map.image_size)
-      ui.image(smol_map.image,smol_map.canvas:size(), ui.ImageFit.Fit)
-    end)
-  end
+--  end
 end
 
 ac.onClientConnected( function(i, j) -- reload cars when someone joins to sort friends
