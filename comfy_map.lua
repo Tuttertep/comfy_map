@@ -82,7 +82,7 @@ function saveMarkers(m)
   loadCars()
 end
 
-local owncar, focusedCar, sim = ac.getCar(0), ac.getCar(0), ac.getSim()
+local owncar, focusedCar, sim, uiState  = ac.getCar(0), ac.getCar(0), ac.getSim(), ac.getUI()
 local first = true
 local versionerror = "requires csp version 1.78 or newer (this message is displayed when the version id is below 2000)"
 local app_folder = ac.getFolder(ac.FolderID.ACApps) .. '/lua/comfy_map/'
@@ -181,7 +181,7 @@ end
 function vec2Inside(point,square) return point.x>0 and point.y>0 and point.x<square.x and point.y<square.y end
 
 function script.onShowWindow() --reset window positions
-  local screenSize = ac.getUI().windowSize
+  local screenSize = uiState.windowSize
   if ac.accessAppWindow and not vec2Inside(comfyMainWindow:position(),screenSize) then
     comfyMainWindow:move(vec2(100,100)) print('main map outside screen')
   end
@@ -190,20 +190,26 @@ function script.onShowWindow() --reset window positions
   end
 end
 
+warning_timer = 0
 function drawTraffic(map)
+  local add_warning = false
   for i,j in pairs(traffic) do
     local car = ac.getCar(j.index)
     if car.isActive and car.speedKmh<50 then
-      pos3:set(car.position)
-      if map.centered and map.rotation then
-        pos3 = rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position
+      add_warning = true
+      if warning_timer>100 then
+        pos3:set(car.position)
+        if map.centered and map.rotation then
+          pos3 = rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position
+        end
+        pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(map.config_scale):add(-map.offsets)
+        ui.beginOutline()
+        ui.drawIcon(ui.Icons.Warning,pos2-iconsize*2,pos2+iconsize*2,rgbm.colors.orange)
+        ui.endOutline(rgbm.colors.black)
       end
-      pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(map.config_scale):add(-map.offsets)
-      ui.beginOutline()
-      ui.drawIcon(ui.Icons.Warning,pos2-iconsize*2,pos2+iconsize*2,rgbm.colors.orange)
-      ui.endOutline(rgbm.colors.black)
     end
   end
+  warning_timer = add_warning and (warning_timer + 20) or 0
 end
 
 function script.windowMain(dt)
@@ -214,10 +220,10 @@ function script.windowMain(dt)
   ui.invisibleButton()
 
   if windowHovered then --zoom&drag&centering&reset
-    if ac.getUI().mouseWheel ~= 0 then
-      if (ac.getUI().mouseWheel < 0 and (main_map.size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
+    if ui.mouseWheel()~=0 then
+      if (ui.mouseWheel() < 0 and (main_map.size>ui.windowSize()*0.97)) or ui.mouseWheel() > 0 then
         local old = main_map.size
-        main_map.scale = main_map.scale * (1 + math.sign(ac.getUI().mouseWheel) * 0.15)
+        main_map.scale = main_map.scale * (1 + math.sign(ui.mouseWheel()) * 0.15)
         main_map.size = main_map.image_size * main_map.scale
         main_map.config_scale = main_map.scale / config.SCALE_FACTOR
         main_map.offsets = main_map.offsets + (main_map.size - old) * (main_map.offsets + ui.mouseLocalPos()) / old -- DON'T touch, powered by dark magic
@@ -491,6 +497,7 @@ function script.windowMainSettings(dt)
     ui.tabItem('settings', function() --settings tab
       if coloredButton('update comfy map','click to download and install latest comfy map from github') then comfyUpdate('main') end -- update button
       ccheckbox('new render', 'new_render', 'redraw canvas after zooming to avoid drawing full size image when it is not necessary')
+      if ui.itemClicked() then updateCanvas(main_map) updateCanvas(smol_map) end -- update canvases if toggled
       ccheckbox("follow player", 'centered', 'middle clicking map also toggles this')
       if settings.centered then
         ui.indent()
@@ -720,7 +727,7 @@ function windowSmol(dt)
   if first then onShowWindow1() return end
   ui.invisibleButton()
   if ui.windowHovered() and ui.mouseWheel()~=0 then
-    if (ac.getUI().mouseWheel < 0 and (smol_map.size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
+    if (ui.mouseWheel() < 0 and (smol_map.size>ui.windowSize()*0.97)) or ui.mouseWheel() > 0 then
       smol_map.scale = smol_map.scale * (1 + 0.1 * ui.mouseWheel())
       smol_map.size = smol_map.image_size*smol_map.scale
       smol_map.config_scale = smol_map.scale/config.SCALE_FACTOR
