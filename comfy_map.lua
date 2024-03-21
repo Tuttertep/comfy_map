@@ -193,7 +193,6 @@ end
 function drawTraffic(map)
   for i,j in pairs(traffic) do
     local car = ac.getCar(j.index)
-    --if car.isActive and (car.brake>0.1 or car.hazardLights or car.speedKmh<50) then
     if car.isActive and car.speedKmh<50 then
       pos3:set(car.position)
       if map.centered and map.rotation then
@@ -224,7 +223,7 @@ function script.windowMain(dt)
         main_map.offsets = main_map.offsets + (main_map.size - old) * (main_map.offsets + ui.mouseLocalPos()) / old -- DON'T touch, powered by dark magic
         updateCanvas(main_map)
       else
-        resetScale(main_map)
+        if not settings.centered then resetScale(main_map) end
       end
     end
     if ui.mouseClicked(2) then --toggle centering with middle click
@@ -574,27 +573,15 @@ function script.windowMainSettings(dt)
         end
         ui.nextColumn()
       end
+      ui.columns(1)
 
-      if ui.button('reload comfy map') then
-        ui.unloadImage(main_map.image)
-        ui.unloadImage(smol_map.image)
-        ui.unloadImage(map)
-        ui.unloadImage(map_mini)
-        main_map.canvas:dispose()
-        smol_map.canvas:dispose()
-        main_map = nil
-        smol_map = nil
-        onShowWindow1()
-      end
-
-      if ui.button('reset settings') then
+      if coloredButton('reset settings',rgbm.colors.maroon) then
         markers = stringify.parse(default_colors)
         for i,j in pairs(defaults) do
           settings[i] = j
         end
         changed = true
       end
-      ui.columns(1)
 
       if changed then
         saveMarkers(markers)
@@ -733,10 +720,12 @@ function windowSmol(dt)
   if first then onShowWindow1() return end
   ui.invisibleButton()
   if ui.windowHovered() and ui.mouseWheel()~=0 then
-    smol_map.scale = smol_map.scale * (1 + 0.1 * ui.mouseWheel())
-    smol_map.size = smol_map.image_size*smol_map.scale
-    smol_map.config_scale = smol_map.scale/config.SCALE_FACTOR
-    updateCanvas(smol_map)
+    if (ac.getUI().mouseWheel < 0 and (smol_map.size>ui.windowSize()*0.97)) or ac.getUI().mouseWheel > 0 then
+      smol_map.scale = smol_map.scale * (1 + 0.1 * ui.mouseWheel())
+      smol_map.size = smol_map.image_size*smol_map.scale
+      smol_map.config_scale = smol_map.scale/config.SCALE_FACTOR
+      updateCanvas(smol_map)
+    end
   end
   focusedCar = ac.getCar(sim.focusedCar)
 
@@ -819,8 +808,6 @@ function drawArrow(car,color,signals)
 end
 
 
-map_mini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map_mini.png'
-map = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/map.png'
 
 function newMap(file,is_main)
   local map = {
@@ -846,27 +833,28 @@ end
 
 function onShowWindow1() --somehow works?
   if (not first) or (version < 2000) then return end
+  map_mini = ac.getFolder(ac.FolderID.ContentTracks) .. '\\' .. ac.getTrackFullID('\\') .. '\\map_mini.png'
+  map = ac.getFolder(ac.FolderID.ContentTracks) .. '\\' .. ac.getTrackFullID('\\') .. '\\map.png'
   current_map = io.exists(map_mini) and map_mini or  map
   ui.text('map file loading or missing')
-  if io.exists(map_mini) and (not ui.isImageReady(map_mini)) or io.exists(map) and (not ui.isImageReady(map)) then return end
---  if (not io.exists(map_mini) and ui.isImageReady(map)) or (io.exists(map_mini) and ui.isImageReady(map_mini) and ui.isImageReady(map) ) then
-    first = false
-    ini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/data/map.ini'
-    config = ac.INIConfig.load(ini):mapSection('PARAMETERS', { SCALE_FACTOR = 1, Z_OFFSET = 1, X_OFFSET = 1, WIDTH=500, HEIGHT=500, MARGIN=20, DRAWING_SIZE=10, MAX_SIZE=1000})
-    config.OFFSETS = vec2(config.X_OFFSET, config.Z_OFFSET)
-    centered_offset = vec2(0.5,0.5-settings.centered_offset)
-    namepos = vec2(settings.namesx, settings.namesy)
-    if sim.isOnlineRace then --teleport config
-      teleports1 = loadTeleports(ac.INIConfig.onlineExtras(),true)
-    end
-    loadMarkers()
-    loadCars()
-    main_map = newMap(current_map, true)
-    resetScale(main_map)
+  if (not ui.isImageReady(map)) or (not ui.isImageReady(current_map)) then return end
+  
+  first = false
+  ini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/data/map.ini'
+  config = ac.INIConfig.load(ini):mapSection('PARAMETERS', { SCALE_FACTOR = 1, Z_OFFSET = 1, X_OFFSET = 1, WIDTH=500, HEIGHT=500, MARGIN=20, DRAWING_SIZE=10, MAX_SIZE=1000})
+  config.OFFSETS = vec2(config.X_OFFSET, config.Z_OFFSET)
+  centered_offset = vec2(0.5,0.5-settings.centered_offset)
+  namepos = vec2(settings.namesx, settings.namesy)
+  if sim.isOnlineRace then --teleport config
+    teleports1 = loadTeleports(ac.INIConfig.onlineExtras(),true)
+  end
+  loadMarkers()
+  loadCars()
+  main_map = newMap(current_map, true)
+  resetScale(main_map)
 
-    smol_map = newMap(map)
-    resetScale(smol_map)
---  end
+  smol_map = newMap(map)
+  resetScale(smol_map)
 end
 
 ac.onClientConnected( function(i, j) -- reload cars when someone joins to sort friends
