@@ -497,7 +497,7 @@ function script.windowMainSettings(dt)
     ui.tabItem('settings', function() --settings tab
       if coloredButton('update comfy map','click to download and install latest comfy map from github') then comfyUpdate('main') end -- update button
       ccheckbox('new render', 'new_render', 'redraw canvas after zooming to avoid drawing full size image when it is not necessary')
-      if ui.itemClicked() then updateCanvas(main_map) updateCanvas(smol_map) end -- update canvases if toggled
+      if ui.itemHovered() and ui.mouseReleased() then updateCanvas(main_map) updateCanvas(smol_map) end -- update canvases if toggled
       ccheckbox("follow player", 'centered', 'middle clicking map also toggles this')
       if settings.centered then
         ui.indent()
@@ -686,12 +686,13 @@ function resetScale(map)
   if zoomed then map.scale = settings.centered_zoom end
   map.size = map.image_size * map.scale
   map.config_scale = map.scale / config.SCALE_FACTOR
-  if settings.new_render then updateCanvas(map) end
+  updateCanvas(map)
 end
 
 function updateCanvas(map)
+  if not settings.new_render then return end
   map.canvas:dispose()
-  map.canvas = ui.ExtraCanvas(map.image_size*math.clamp(map.scale,0.1,1))
+  map.canvas = ui.ExtraCanvas(map.image_size*math.clamp(map.scale,0.01,1))
   map.canvas:update(function (dt)
     ui.image(map.image,map.canvas:size())
   end)
