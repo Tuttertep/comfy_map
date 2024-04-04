@@ -43,7 +43,7 @@ local defaults = {
   teleporting = true,
   teleporting_mouseover = true,
   new_teleports = true,
-  new_render = true,
+  new_render = false,
   teleport_warning = true,
   friends = true,
   namesx = 0,
@@ -82,7 +82,7 @@ function saveMarkers(m)
   loadCars()
 end
 
-local owncar, focusedCar, sim, uiState  = ac.getCar(0), ac.getCar(0), ac.getSim(), ac.getUI()
+owncar, focusedCar, sim, uiState  = ac.getCar(0), ac.getCar(0), ac.getSim(), ac.getUI()
 local first = true
 local versionerror = "requires csp version 1.78 or newer (this message is displayed when the version id is below 2000)"
 local app_folder = ac.getFolder(ac.FolderID.ACApps) .. '/lua/comfy_map/'
@@ -146,6 +146,16 @@ function shouldDrawCar(index)
   local car = ac.getCar(index)
   return car.isConnected and (not car.isHidingLabels) and car.isActive
 end
+
+safetyRatingApi = ac.connect({
+  ac.StructItem.key("AS_SafetyRating"),
+  loaded = ac.StructItem.boolean(),
+  ratings = ac.StructItem.array(ac.StructItem.struct({
+      rating = ac.StructItem.float(),
+      color = ac.StructItem.rgb(),
+      rank = ac.StructItem.array(ac.StructItem.char(), 10)
+  }), sim.carsCount)
+}, true, ac.SharedNamespace.Shared)
 
 function isTagged(i)
   local name = ac.getDriverName(i)
@@ -767,6 +777,12 @@ function clampName(i)
   end
 end
 
+function safetyRating(carIndex)
+  local ratingV5 = __util.ffistrsafe(safetyRatingApi.ratings[carIndex].rank,10)
+  if ratingV5 ~='' then return ratingV5 end
+  return nil
+end
+
 function drawName(car)
   if #car.name==0 then car.name = clampName(car.index) end
   if car.index==sim.focusedCar and not settings.ownname then return end
@@ -779,6 +795,7 @@ function drawName(car)
     ui.setTooltip(ac.getDriverName(car.index)
        .. '\n' .. ac.getCarID(car.index)
        .. '\n' .. math.round(ac.getCar(car.index).speedKmh,-1) .. ' km/h'
+       .. (safetyRating(car.index) and ('\nsafety rating: ' .. safetyRating(car.index)) or '')
     )
   end
   ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
