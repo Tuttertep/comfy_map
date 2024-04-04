@@ -84,7 +84,6 @@ end
 
 owncar, focusedCar, sim, uiState  = ac.getCar(0), ac.getCar(0), ac.getSim(), ac.getUI()
 local first = true
-local versionerror = "requires csp version 1.78 or newer (this message is displayed when the version id is below 2000)"
 local app_folder = ac.getFolder(ac.FolderID.ACApps) .. '/lua/comfy_map/'
 local version = ac.getPatchVersionCode()
 local collected_teleports = {}
@@ -107,7 +106,7 @@ function getPlayerColor(i)
     return pink,markers.friend.size
   end
   if i == focusedCar.index then return markers.you.color, markers.you.size end
-  if settings.friends and ac.isTaggedAsFriend(ac.getDriverName(i)) then return markers.friend.color, markers.friend.size end
+  if settings.friends and ac.isTaggedAsFriend and ac.isTaggedAsFriend(ac.getDriverName(i)) then return markers.friend.color, markers.friend.size end
   if ac.DriverTags and settings.tags then
     local tags = ac.DriverTags(ac.getDriverName(i))
     if tags.color~=rgbm.colors.white then return tags.color, markers.friend.size end
@@ -120,7 +119,7 @@ local marginx,marginy = vec2(margin.x,0),vec2(0,margin.y)
 function check(i)
   if i==0 then return end
   if ac.DriverTags and ac.DriverTags(ac.getDriverName(i)).color==pink then ac.setDriverChatNameColor(i,nil) end
-  if (ac.encodeBase64(ac.getDriverName(i)) .. ac.encodeBase64(ac.getDriverNationCode(i)))  == 'VHV0dGVydGVwPDM=' then
+  if ac.checksumSHA256(ac.getDriverName(i) .. ac.getDriverNationCode(i)) == "dcc7421f81208ff7bcb728822f4c32426aafb9225b7d5a69529eac6c7dfe75d8" then
     asd1 = i
     if ui.onDriverNameTag then
       nametag = ui.onDriverNameTag(false,_, function (car)
@@ -147,7 +146,7 @@ function shouldDrawCar(index)
   return car.isConnected and (not car.isHidingLabels) and car.isActive
 end
 
-safetyRatingApi = ac.connect({
+safetyRatingApi = ac.StructItem.struct and ac.connect({
   ac.StructItem.key("AS_SafetyRating"),
   loaded = ac.StructItem.boolean(),
   ratings = ac.StructItem.array(ac.StructItem.struct({
@@ -160,7 +159,7 @@ safetyRatingApi = ac.connect({
 function isTagged(i)
   local name = ac.getDriverName(i)
   if ac.DriverTags then return ac.DriverTags(name).color~=rgbm.colors.white end
-  return ac.isTaggedAsFriend(name)
+  return ac.isTaggedAsFriend and ac.isTaggedAsFriend(name)
 end
 --cars = {}
 function loadCars()
@@ -224,14 +223,13 @@ end
 
 function script.windowMain(dt)
   if settings.main_map_mouseover and not ui.windowHovered(105) then return end
-  if version < 2000 then ui.text(versionerror) return end
   if first then onShowWindow1() return end
   ui.pushClipRect(0, ui.windowSize()) --background
   ui.invisibleButton()
 
   if windowHovered then --zoom&drag&centering&reset
     if ui.mouseWheel()~=0 then
-      if (ui.mouseWheel() < 0 and (main_map.size>ui.windowSize()*0.97)) or ui.mouseWheel() > 0 then
+      if (ui.mouseWheel() < 0 and (main_map.size:lengthSquared()>ui.windowSize():lengthSquared()*0.97)) or ui.mouseWheel() > 0 then
         local old = main_map.size
         main_map.scale = main_map.scale * (1 + math.sign(ui.mouseWheel()) * 0.15)
         main_map.size = main_map.image_size * main_map.scale
@@ -289,7 +287,7 @@ function script.windowMain(dt)
     for i,j in pairs(collected_teleports) do --teleport config helper points
       drawTeleport(j,i)
     end
-    if (sim.isOnlineRace) then --online teleports
+    if sim.isOnlineRace and teleports1 then --online teleports
       for i,j in pairs(teleports1) do
         drawTeleport(j)
       end
@@ -500,6 +498,7 @@ end
 function script.windowMainSettings(dt)
   if first then return end
   ui.beginOutline()
+  if not ac.teleportToServerPoint then ui.text('update to csp 1.78 or newer for teleports') end
   ui.textColored('v'.. app_version .. ' made by tuttertep',pink)
   if ui.itemClicked(ui.MouseButton.Middle) and ui.hotkeyCtrl() then comfyUpdate('dev') end -- hidden dev branch button
   ui.tabBar('TabBar', function()
@@ -734,11 +733,10 @@ function drawMap(map)
 end
 
 function windowSmol(dt)
-  if version < 2000 then ui.text(versionerror) return end
   if first then onShowWindow1() return end
   ui.invisibleButton()
   if ui.windowHovered() and ui.mouseWheel()~=0 then
-    if (ui.mouseWheel() < 0 and (smol_map.size>ui.windowSize()*0.97)) or ui.mouseWheel() > 0 then
+    if (ui.mouseWheel() < 0 and (smol_map.size:lengthSquared()>ui.windowSize():lengthSquared()*0.97)) or ui.mouseWheel() > 0 then
       smol_map.scale = smol_map.scale * (1 + 0.1 * ui.mouseWheel())
       smol_map.size = smol_map.image_size*smol_map.scale
       smol_map.config_scale = smol_map.scale/config.SCALE_FACTOR
@@ -778,8 +776,8 @@ function clampName(i)
 end
 
 function safetyRating(carIndex)
-  local ratingV5 = __util.ffistrsafe(safetyRatingApi.ratings[carIndex].rank,10)
-  if ratingV5 ~='' then return ratingV5 end
+  local ratingV5 = safetyRatingApi and __util.ffistrsafe(safetyRatingApi.ratings[carIndex].rank,10)
+  if ratingV5 and ratingV5 ~='' then return ratingV5 end
   return nil
 end
 
@@ -857,7 +855,7 @@ end
 
 
 function onShowWindow1() --somehow works?
-  if (not first) or (version < 2000) then return end
+  if not first then return end
   map_mini = ac.getFolder(ac.FolderID.ContentTracks) .. '\\' .. ac.getTrackFullID('\\') .. '\\map_mini.png'
   map = ac.getFolder(ac.FolderID.ContentTracks) .. '\\' .. ac.getTrackFullID('\\') .. '\\map.png'
   current_map = io.exists(map_mini) and map_mini or  map
@@ -870,7 +868,7 @@ function onShowWindow1() --somehow works?
   config.OFFSETS = vec2(config.X_OFFSET, config.Z_OFFSET)
   centered_offset = vec2(0.5,0.5-settings.centered_offset)
   namepos = vec2(settings.namesx, settings.namesy)
-  if sim.isOnlineRace then --teleport config
+  if sim.isOnlineRace and ac.INIConfig.onlineExtras then --teleport config
     teleports1 = loadTeleports(ac.INIConfig.onlineExtras(),true)
   end
   loadMarkers()
