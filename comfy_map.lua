@@ -106,8 +106,10 @@ function getPlayerColor(i)
     return pink,markers.friend.size
   end
   if i == focusedCar.index then return markers.you.color, markers.you.size end
-  if settings.friends and ac.isTaggedAsFriend and ac.isTaggedAsFriend(ac.getDriverName(i)) then return markers.friend.color, markers.friend.size end
-  if ac.DriverTags and settings.tags then
+  if settings.friends and ac.isTaggedAsFriend and ac.isTaggedAsFriend(ac.getDriverName(i)) then
+    return markers.friend.color, markers.friend.size
+  end
+  if settings.tags and ac.DriverTags then
     local tags = ac.DriverTags(ac.getDriverName(i))
     if tags.color~=rgbm.colors.white then return tags.color, markers.friend.size end
   end
@@ -187,15 +189,15 @@ if ac.accessAppWindow then
   comfySmolWindow = ac.accessAppWindow('IMGUI_LUA_comfy map_smol_map')
   --for i,j in pairs(ac.getAppWindows()) do print(j.name) end --debug
 end
-function vec2Inside(point,square) return point.x>0 and point.y>0 and point.x<square.x and point.y<square.y end
+function vec2Inside(point,square) return point.x>-5 and point.y>-5 and point.x<square.x and point.y<square.y end
 
 function script.onShowWindow() --reset window positions
   local screenSize = uiState.windowSize
   if ac.accessAppWindow and not vec2Inside(comfyMainWindow:position(),screenSize) then
-    comfyMainWindow:move(vec2(100,100)) print('main map outside screen')
+    print('main map outside screen' .. ' pos:' .. stringify(comfyMainWindow:position())) comfyMainWindow:move(vec2(10,10))
   end
   if ac.accessAppWindow and not vec2Inside(comfySmolWindow:position(),screenSize) then
-    comfySmolWindow:move(vec2(100,100)) print('smol map outside screen')
+    print('smol map outside screen' .. ' pos:' .. stringify(comfySmolWindow:position())) comfySmolWindow:move(vec2(10,10))
   end
 end
 
