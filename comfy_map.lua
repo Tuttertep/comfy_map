@@ -312,7 +312,6 @@ end
 
 local function clampName(i)
   local name = ac.getDriverName(i)
-  --local name = "Hこe世l😊l界o" ac.debug('length',name:len_utf8() .. ' ' .. #name) --ac.getDriverName(i)
   if settings.names_length<1 or name:len_utf8()<=settings.names_length then return name end
   return name:gsub("[-|(){} ]",''):clamp_utf8(settings.names_length)
 end
