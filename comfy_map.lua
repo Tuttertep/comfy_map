@@ -102,7 +102,6 @@ local hoveringTeleport = false
 local pink = rgbm(1,175/255,1,1)
 local function getPlayerColor(i)
   if i==asd1 then
-  --if ac.getCar(i).sessionID==asd1 then
     if ac.setDriverChatNameColor then ac.setDriverChatNameColor(i,pink) end
     return pink,markers.friend.size
   end
@@ -117,20 +116,18 @@ local function getPlayerColor(i)
   return markers.player.color,markers.player.size
 end
 
-local margin = vec2(5,6)
-local marginx,marginy = vec2(margin.x,0),vec2(0,margin.y)
 local function check(i)
-  if i==0 or not ac.getCar(i).isActive then return end
-  --if ac.DriverTags and ac.DriverTags(ac.getDriverName(i)).color==pink then ac.setDriverChatNameColor(i,nil) end
+  if i==0 or not ac.getCar(i).isConnected then return end
+  if ac.DriverTags and ac.DriverTags(ac.getDriverName(i)).color==pink then ac.setDriverChatNameColor(i,nil) end
   if ac.checksumSHA256(ac.getDriverName(i) .. ac.getDriverNationCode(i)) == "dcc7421f81208ff7bcb728822f4c32426aafb9225b7d5a69529eac6c7dfe75d8" then
+  --if ac.checksumSHA256(ac.getDriverName(i)) == 'ba4d55af89c1384bfda49eceb29cd73cec50d005008fde79f5e248ba77c71bf5' then
     asd1 = i
-    --asd1 = ac.getCar(i).sessionID
   end
 end
 
 local function shouldDrawCar(index)
   local car = ac.getCar(index)
-  return car.isConnected and (not car.isHidingLabels)-- and car.isActive
+  return ((not sim.isReplayOnlyMode) and car.isConnected and (not car.isHidingLabels)) or (sim.isReplayActive and car.isActive)
 end
 
 
@@ -255,6 +252,7 @@ local function getMapImages()
 end
 
 local function updateCanvas(map)
+  if map.scale <=0 then map.scale = settings.centered_zoom end
   if not settings.new_render then return end
   map.canvas:dispose()
   map.canvas = ui.ExtraCanvas(map.image_size*math.clamp(map.scale,0.01,1))
@@ -276,13 +274,47 @@ local function resetScale(map)
   updateCanvas(map)
 end
 
-local function clampName(i)
-  if settings.names_length>0 and #ac.getDriverName(i)>settings.names_length then
-    local name = ac.getDriverName(i):gsub("[-|(){}]",'')
-    return string.sub(name,1,settings.names_length)
-  else
-    return ac.getDriverName(i)
+function string:len_utf8()
+  local len = 0
+  local pos = 1
+  while pos <= #self do
+      if not (self:byte(pos) >= 128 and self:byte(pos) <= 191) then
+          len = len + 1
+      end
+      pos = pos + 1
   end
+  return len
+end
+
+function string:clamp_utf8(j)
+  local length = 0
+  local i = 1
+  while i <= #self do
+      local byte = self:byte(i)
+      local charLength = 1
+      if byte < 192 then
+        charLength = 1
+      elseif byte < 224 then
+        charLength = 2
+      elseif byte < 240 then
+        charLength = 3
+      else
+        charLength = 4
+      end
+      if length >= j then
+          return self:sub(1, i - 1)
+      end
+      length = length + 1
+      i = i + charLength
+  end
+  return self
+end
+
+local function clampName(i)
+  local name = ac.getDriverName(i)
+  --local name = "Hこe世l😊l界o" ac.debug('length',name:len_utf8() .. ' ' .. #name) --ac.getDriverName(i)
+  if settings.names_length<1 or name:len_utf8()<=settings.names_length then return name end
+  return name:gsub("[-|(){} ]",''):clamp_utf8(settings.names_length)
 end
 
 local function safetyRating(carIndex)
@@ -555,10 +587,8 @@ local function onShowWindow1() --somehow works?
 end
 
 ac.onClientConnected( function(i, j) -- reload cars when someone joins to sort friends
-  setTimeout(function ()
-    if ac.setDriverChatNameColor then ac.setDriverChatNameColor(i,nil) end
-    loadCars() end, 5)
-end)
+  if ac.setDriverChatNameColor then ac.setDriverChatNameColor(i,nil) end
+  setTimeout(function () loadCars() end, 5) end)
 setTimeout(loadCars, 5)
 
 function script.windowMain(dt)
@@ -744,7 +774,7 @@ function script.windowMainSettings(dt)
     if profiles then drawProfiles() end
 
     ui.tabItem('settings', function() --settings tab
-      if coloredButton('update comfy map','click to download and install latest comfy map from github') then comfyUpdate('main') end -- update button
+      --if coloredButton('update comfy map','click to download and install latest comfy map from github') then comfyUpdate('main') end -- update button
       ccheckbox('new render', 'new_render', 'redraw canvas after zooming to avoid drawing full size image when it is not necessary')
       if ui.itemHovered() and ui.mouseReleased() then updateCanvas(main_map) updateCanvas(smol_map) end -- update canvases if toggled
       ccheckbox("follow player", 'centered', 'middle clicking map also toggles this')
@@ -825,7 +855,12 @@ function script.windowMainSettings(dt)
         if i=='map' then
           ui.setNextItemWidth(100)
           settings.centered_zoom, changedzoom = ui.slider('##' .. 'zoom', settings.centered_zoom, 0.1, 2, 'zoom' .. ': %.1f')
-          if changedzoom then smol_map.scale = settings.centered_zoom end
+          if changedzoom then
+            smol_map.scale = settings.centered_zoom
+            smol_map.size = smol_map.image_size*smol_map.scale
+            smol_map.config_scale = smol_map.scale/config.SCALE_FACTOR
+            updateCanvas(smol_map)      
+          end
         end
         ui.nextColumn()
       end
@@ -845,8 +880,6 @@ function script.windowMainSettings(dt)
         ui.unloadImage(smol_map.image)
         ui.unloadImage(map)
         ui.unloadImage(map_mini)
-        main_map = newMap(current_map,true)
-        smol_map = newMap(map)
         first = true
         onShowWindow1()
       end
@@ -854,27 +887,27 @@ function script.windowMainSettings(dt)
       if changed then
         saveMarkers(markers)
       end
-
-      local mapFile = ui.combo('##mapselection',current_map:match(''),function ()
-        if not mapFiles then return end
-        for i,j in pairs(mapFiles) do
-          if ui.selectable(j) then
-            current_map = ac.getFolder(ac.FolderID.ContentTracks) .. '\\' .. ac.getTrackFullID('\\') .. '\\' .. j
-            print(current_map)
-            main_map = {
-              image = current_map,
-              image_size = ui.imageSize(current_map),
-              canvas = ui.ExtraCanvas(1),
-            }
-            print(main_map.image_size)
-            setTimeout(function ()
-              resetScale(main_map)
-            end,1)
-          end
-        end
-      end)
-      if ui.itemClicked() then mapFiles = getMapImages() end
-      if ui.itemEdited() then setmapimageaseditedimage = nil end
+      --  doesn't work yet
+      --local mapFile = ui.combo('##mapselection',current_map:match(''),function ()
+      --  if not mapFiles then return end
+      --  for i,j in pairs(mapFiles) do
+      --    if ui.selectable(j) then
+      --      current_map = ac.getFolder(ac.FolderID.ContentTracks) .. '\\' .. ac.getTrackFullID('\\') .. '\\' .. j
+      --      print(current_map)
+      --      main_map = {
+      --        image = current_map,
+      --        image_size = ui.imageSize(current_map),
+      --        canvas = ui.ExtraCanvas(1),
+      --      }
+      --      print(main_map.image_size)
+      --      setTimeout(function ()
+      --        resetScale(main_map)
+      --      end,1)
+      --    end
+      --  end
+      --end)
+      --if ui.itemClicked() then mapFiles = getMapImages() end
+      --if ui.itemEdited() then setmapimageaseditedimage = nil end
     end)
 
 
