@@ -53,6 +53,7 @@ local defaults = {
   names_smol = true,
   names_mouseover = true,
   names_smol_mouseover = false,
+  names_tagged_only = false,
   names_spectate = true,
   ownname = false,
   markers = default_colors,
@@ -167,21 +168,19 @@ local function loadCars()
   end)
 end
 
-local comfyMainWindow,comfySmolWindow
-if ac.accessAppWindow then
-  comfyMainWindow = ac.accessAppWindow('IMGUI_LUA_comfy map_main')
-  comfySmolWindow = ac.accessAppWindow('IMGUI_LUA_comfy map_smol_map')
-  --for i,j in pairs(ac.getAppWindows()) do print(j.name) end --debug
-end
-local function vec2Inside(point,square) return point.x>-5 and point.y>-5 and point.x<square.x and point.y<square.y end
+local comfyMainWindow = nil
 
 function script.onShowWindow() --reset window positions
   local screenSize = uiState.windowSize
-  if ac.accessAppWindow and not vec2Inside(comfyMainWindow:position(),screenSize) then
-    print('main map outside screen' .. ' pos:' .. stringify(comfyMainWindow:position())) comfyMainWindow:move(vec2(10,10))
-  end
-  if ac.accessAppWindow and not vec2Inside(comfySmolWindow:position(),screenSize) then
-    print('smol map outside screen' .. ' pos:' .. stringify(comfySmolWindow:position())) comfySmolWindow:move(vec2(10,10))
+  local function vec2Inside(point,square) return point.x>-50 and point.y>-10 and point.x<square.x and point.y<square.y end
+
+  if ac.accessAppWindow and ac.getAppWindows then
+    for i,j in pairs(ac.getAppWindows()) do
+      if j.name:find('IMGUI_LUA_comfy') or (ui.hotkeyCtrl() and j.name:find('IMGUI_LUA')) then
+        local acsr = ac.accessAppWindow(j.name)
+        if acsr and not vec2Inside(acsr:position(),screenSize) then print(j.name,'off-screen at',acsr:position()) acsr:move(vec2(0,0)) end
+      end
+    end
   end
 end
 
@@ -324,7 +323,8 @@ end
 
 local function drawName(car)
   if #car.name==0 then car.name = clampName(car.index) end
-  if car.index==sim.focusedCar and not settings.ownname then return end
+  if car.index==sim.focusedCar and (not settings.ownname) then return end
+  if settings.names_tagged_only and (not isTagged(car.index)) then return end
   ui.pushFont(ui.Font.Small)
   ui.setCursor(car.pos2 + namepos - ui.measureText(car.name) * 0.5)
   --ui.drawLine(car.pos2, car.pos2 + namepos , car.color, 2)
@@ -795,6 +795,7 @@ function script.windowMainSettings(dt)
       ccheckbox("main map names", 'names')
       if settings.names then
         ui.indent()
+        ccheckbox("tagged only##names", 'names_tagged_only')
         ccheckbox("mouseover only##names", 'names_mouseover')
         ui.unindent()
       end
@@ -910,7 +911,7 @@ function script.windowMainSettings(dt)
     end)
 
 
-    ui.tabItem('teleport config helper', function() --teleport tab
+    ui.tabItem('server config helper', function() --teleport tab
 
       if coloredButton('save point','camera position in f7 camera, otherwise car position') then --group logic coming at some point maybe
         local pos3 = ac.getCar(sim.focusedCar).position
