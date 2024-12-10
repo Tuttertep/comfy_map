@@ -888,7 +888,7 @@ function script.windowMainSettings(dt)
         if j.size~=nil then
           j.size = uislider(i..'size',j.size,0,2,'size' .. ': %.2f',100)
         end
-        if i=='friend' then ui.sameLine() uicheckbox("##friends", 'friends') end
+        if i=='friend' then ui.sameLine() uicheckbox("##friends", 'friends', 'highlight friends') end
         if i=='turn_signals' and version>2051 then
           ui.sameLine() uicheckbox("##turn signals", 'turn_signals', 'signals on main')
           ui.sameLine() uicheckbox('##turn signals_smol','turn_signals_smol','signals on smol')
@@ -896,6 +896,10 @@ function script.windowMainSettings(dt)
         if i=='map' then
           settings.centered_zoom, changedzoom = uislider('##' .. 'zoom', settings.centered_zoom, 0.1, 2, 'zoom' .. ': %.1f',100,true)
           if changedzoom then resetScale(smol_map) end
+        end
+        if i=="traffic" then
+          ui.sameLine() uicheckbox('##traffic_main', 'traffic_main', 'traffic on main')
+          ui.sameLine() uicheckbox('##traffic_smol', 'traffic_smol', 'traffic on smol')
         end
         ui.nextColumn()
       end
