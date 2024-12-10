@@ -153,15 +153,16 @@ end
 
 local function loadMarkers()
   markers = stringify.parse(settings.markers)
-  if markers.you==nil then markers = stringify.parse(default_colors) end
-  if markers.turn_signals==nil then markers = stringify.parse(default_colors) end
-  if markers.traffic==nil then markers = stringify.parse(default_colors) end
+  if not markers then markers = stringify.parse(default_colors) end
+  if not markers.you then markers = stringify.parse(default_colors) end
+  if not markers.turn_signals then markers = stringify.parse(default_colors) end
+  if not markers.traffic then markers = stringify.parse(default_colors) end
   settings.markers = stringify(m)
 end
 
 local function saveMarkers(m)
-  settings.markers = stringify(m)
-  loadCars()
+settings.markers = stringify(m)
+loadCars()
 end
 
 
