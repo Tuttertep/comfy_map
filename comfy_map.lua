@@ -33,6 +33,10 @@ local default_colors = stringify{
     color = rgbm(0,1,0,1),
     size = 0.8,
   },
+  traffic = {
+    color = rgbm(0.1,0.1,0.1,0.4),
+    size = 0.5,
+  },
 }
 
 local defaults = {
@@ -64,24 +68,14 @@ local defaults = {
   turn_signals_smol = true,
   tags = false,
   main_map_mouseover = false,
-  traffic_warnings = true
+  traffic_warnings = true,
+  traffic_smol = true,
+  traffic_main = false
 }
 local settings = ac.storage(defaults)
 
 local markers = {}
 
-
-local function loadMarkers()
-    markers = stringify.parse(settings.markers)
-    if markers.you==nil then
-      markers = stringify.parse(default_colors)
-    end
-end
-
-local function saveMarkers(m)
-  settings.markers = stringify(m)
-  loadCars()
-end
 
 owncar, focusedCar, sim, uiState  = ac.getCar(0), ac.getCar(0), ac.getSim(), ac.getUI()
 local first = true
@@ -131,17 +125,6 @@ local function shouldDrawCar(index)
   return ((not sim.isReplayOnlyMode) and car.isConnected and (not car.isHidingLabels)) or (sim.isReplayActive and car.isActive)
 end
 
-
-local safetyRatingApi = ac.StructItem.struct and ac.connect({
-  ac.StructItem.key("AS_SafetyRating"),
-  loaded = ac.StructItem.boolean(),
-  ratings = ac.StructItem.array(ac.StructItem.struct({
-      rating = ac.StructItem.float(),
-      color = ac.StructItem.rgb(),
-      rank = ac.StructItem.array(ac.StructItem.char(), 10)
-  }), sim.carsCount)
-}, true, ac.SharedNamespace.Shared)
-
 local function isTagged(i)
   local name = ac.getDriverName(i)
   if ac.DriverTags then return ac.DriverTags(name).color~=rgbm.colors.white end
@@ -168,7 +151,31 @@ local function loadCars()
   end)
 end
 
-local comfyMainWindow = nil
+local function loadMarkers()
+  markers = stringify.parse(settings.markers)
+  if markers.you==nil then markers = stringify.parse(default_colors) end
+  if markers.turn_signals==nil then markers = stringify.parse(default_colors) end
+  if markers.traffic==nil then markers = stringify.parse(default_colors) end
+  settings.markers = stringify(m)
+end
+
+local function saveMarkers(m)
+  settings.markers = stringify(m)
+  loadCars()
+end
+
+
+local safetyRatingApi = ac.StructItem.struct and ac.connect({
+  ac.StructItem.key("AS_SafetyRating"),
+  loaded = ac.StructItem.boolean(),
+  ratings = ac.StructItem.array(ac.StructItem.struct({
+      rating = ac.StructItem.float(),
+      color = ac.StructItem.rgb(),
+      rank = ac.StructItem.array(ac.StructItem.char(), 10)
+  }), sim.carsCount)
+}, true, ac.SharedNamespace.Shared)
+
+
 
 function script.onShowWindow() --reset window positions
   local screenSize = uiState.windowSize
@@ -184,11 +191,68 @@ function script.onShowWindow() --reset window positions
   end
 end
 
+local function carTransforms(car,size,map)
+  pos3:set(car.position)
+  dir3:set(car.look)
+  if map.centered and map.rotation then
+    pos3 = rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position
+    dir3 = rotation:transformPoint(car.look)
+  end
+  pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(map.config_scale):add(-map.offsets)
+  dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and map.scale^0.3 or 1):scale(size)
+  dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and map.scale^0.3 or 1):scale(size)
+  --for k=0,3 do ui.drawCircleFilled(vec2.tmp():set(owncar.wheels[k].position.x,owncar.wheels[k].position.z):add(config.OFFSETS):scale(config_scale):sub(offsets),5,rgbm.colors.red) end
+end
+
+local function drawArrow(car,color,signals,square)
+  ui.beginOutline()
+  if square then 
+    ui.drawQuadFilled(
+      pos2 + dir2 + dir2x * 0.5, --up
+      pos2 + dir2 - dir2x * 0.5, --up
+      pos2 - dir2 - dir2x * 0.5, --right
+      pos2 - dir2 + dir2x * 0.5, --left
+    color)
+  else
+    ui.drawTriangleFilled(pos2 + dir2, --up
+      pos2 - dir2 - dir2x * 0.75, --right
+      pos2 - dir2 + dir2x * 0.75, --left
+    color)
+  end
+  if version>2051 and signals then
+    if car.turningLightsActivePhase then
+      dir2:scale(markers.turn_signals.size)
+      dir2x:scale(markers.turn_signals.size)
+      if car.turningLeftLights then
+        ui.drawTriangleFilled(
+          pos2 + dir2*0.5 + dir2x * 0.75, --up
+          pos2 - dir2*0.5 + dir2x * 0.75, --right
+          pos2 + dir2x * 1.5, --left
+          markers.turn_signals.color)
+      end
+      if car.turningRightLights then
+        ui.drawTriangleFilled(
+          pos2 + dir2*0.5 - dir2x * 0.75, --up
+          pos2 - dir2*0.5 - dir2x * 0.75, --right
+          pos2 - dir2x * 1.5, --left
+          markers.turn_signals.color)
+      end
+    end
+  end
+  ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
+end
+
 local warning_timer = 0
 local function drawTraffic(map)
   local add_warning = false
   for i=1, #traffic do
     local car = ac.getCar(traffic[i].index)
+
+    if map.traffic and car.isActive then
+      carTransforms(car,markers.traffic.size*map.arrowsize,map)
+      drawArrow(car,markers.traffic.color,true,true)
+    end
+
     if car.isActive and car.speedKmh<50 then
       add_warning = true
       if warning_timer>100 then
@@ -239,7 +303,7 @@ local function coloredButton(name,color,size,tooltip)
   return button
 end
 
-local function ccheckbox(name,setting,color,tooltip)
+local function uicheckbox(name,setting,color,tooltip)
   if type(color)=="string" then tooltip = color color = nil end
   if ui.checkbox(name, settings[setting]) then settings[setting] = not settings[setting] end
   if tooltip and ui.itemHovered() then ui.setTooltip(tooltip) end
@@ -326,7 +390,7 @@ local function drawName(car)
   if car.index==sim.focusedCar and (not settings.ownname) then return end
   if settings.names_tagged_only and (not isTagged(car.index)) then return end
   ui.pushFont(ui.Font.Small)
-  ui.setCursor(car.pos2 + namepos - ui.measureText(car.name) * 0.5)
+  ui.setCursor(car.pos2 + vec2.tmp():set(settings.namesx,settings.namesy) - ui.measureText(car.name) * 0.5)
   --ui.drawLine(car.pos2, car.pos2 + namepos , car.color, 2)
   ui.beginOutline()
   ui.text(car.name)
@@ -342,34 +406,6 @@ local function drawName(car)
   if ui.itemClicked(1) and not hoveringTeleport and settings.names_spectate then ac.focusCar(car.index) end
 end
 
-local function drawArrow(car,color,signals)
-  ui.beginOutline()
-  ui.drawTriangleFilled(pos2 + dir2, --up
-    pos2 - dir2 - dir2x * 0.75, --right
-    pos2 - dir2 + dir2x * 0.75, --left
-  color)
-  if version>2051 and signals then
-    if car.turningLightsActivePhase then
-      dir2:scale(markers.turn_signals.size)
-      dir2x:scale(markers.turn_signals.size)
-      if car.turningLeftLights then
-        ui.drawTriangleFilled(
-          pos2 + dir2*0.5 + dir2x * 0.75, --up
-          pos2 - dir2*0.5 + dir2x * 0.75, --right
-          pos2 + dir2x * 1.5, --left
-          markers.turn_signals.color)
-      end
-      if car.turningRightLights then
-        ui.drawTriangleFilled(
-          pos2 + dir2*0.5 - dir2x * 0.75, --up
-          pos2 - dir2*0.5 - dir2x * 0.75, --right
-          pos2 - dir2x * 1.5, --left
-          markers.turn_signals.color)
-      end
-    end
-  end
-  ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
-end
 
 local function newMap(file,is_main)
   local map = {
@@ -382,10 +418,21 @@ local function newMap(file,is_main)
       __index = function(tbl, key)
           if key == "rotation" then return settings.rotation end
           if key == "centered" then return settings.centered end
+          if key == "traffic" then return settings.traffic_main end
+          if key == "signals" then return settings.turn_signals end
+          if key == "arrowsize" then return settings.arrowsize end
           return rawget(tbl, key)
       end,
     })
   else
+    setmetatable(map,{
+      __index = function(tbl, key)
+          if key == "traffic" then return settings.traffic_smol end
+          if key == "signals" then return settings.turn_signals_smol end
+          if key == "arrowsize" then return settings.arrowsize_smol end
+          return rawget(tbl, key)
+      end,
+    })
     map.rotation = true
     map.centered = true
   end
@@ -537,7 +584,7 @@ end
 
 local function drawMap(map)
   if map.centered then --center on car and rotate
-    map.offsets:set(focusedCar.position.x, focusedCar.position.z):add(config.OFFSETS):scale(map.scale / config.SCALE_FACTOR):add(-ui.windowSize()*centered_offset) --autocenter
+    map.offsets:set(focusedCar.position.x, focusedCar.position.z):add(config.OFFSETS):scale(map.scale / config.SCALE_FACTOR):add(-ui.windowSize()*vec2.tmp():set(0.5,0.5-settings.centered_offset)) --autocenter
 
     if map.rotation then
       rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
@@ -555,7 +602,7 @@ local function drawMap(map)
   ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
 
 
-  if map.centered and map.rotation then ui.endPivotRotation(rotationangle + 90, ui.windowSize()*centered_offset) end
+  if map.centered and map.rotation then ui.endPivotRotation(rotationangle + 90, ui.windowSize()*vec2.tmp():set(0.5,0.5-settings.centered_offset)) end
 
 end
 
@@ -571,8 +618,6 @@ local function onShowWindow1() --somehow works?
   ini = ac.getFolder(ac.FolderID.ContentTracks) .. '/' .. ac.getTrackFullID('/') .. '/data/map.ini'
   config = ac.INIConfig.load(ini):mapSection('PARAMETERS', { SCALE_FACTOR = 1, Z_OFFSET = 1, X_OFFSET = 1, WIDTH=500, HEIGHT=500, MARGIN=20, DRAWING_SIZE=10, MAX_SIZE=1000})
   config.OFFSETS = vec2(config.X_OFFSET, config.Z_OFFSET)
-  centered_offset = vec2(0.5,0.5-settings.centered_offset)
-  namepos = vec2(settings.namesx, settings.namesy)
   if sim.isOnlineRace and ac.INIConfig.onlineExtras then --teleport config
     teleports1 = loadTeleports(ac.INIConfig.onlineExtras(),true)
   end
@@ -623,16 +668,7 @@ function script.windowMain(dt)
     local car = ac.getCar(cars[i].index)
     if shouldDrawCar(cars[i].index) then
       cars[i].color, cars[i].size = getPlayerColor(cars[i].index)
-      pos3:set(car.position)
-      dir3:set(car.look)
-      if settings.centered and settings.rotation then
-        pos3 = rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position
-        dir3 = rotation:transformPoint(car.look)
-      end
-      pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(main_map.config_scale):add(-main_map.offsets)
-      dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and main_map.scale^0.3 or 1):scale(settings.arrowsize):scale(cars[i].size)
-      dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and main_map.scale^0.3 or 1):scale(settings.arrowsize):scale(cars[i].size)
-      --for k=0,3 do ui.drawCircleFilled(vec2.tmp():set(owncar.wheels[k].position.x,owncar.wheels[k].position.z):add(config.OFFSETS):scale(config_scale):sub(offsets),5,rgbm.colors.red) end
+      carTransforms(car,settings.arrowsize*cars[i].size,main_map)
       drawArrow(car,cars[i].color,settings.turn_signals)
       cars[i].pos2:set(pos2.x,pos2.y)
 
@@ -747,11 +783,7 @@ function windowSmol(dt)
     local car = ac.getCar(cars[i].index)
     if shouldDrawCar(cars[i].index) then
       cars[i].color, cars[i].size = getPlayerColor(cars[i].index)
-      pos3:set(rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position)
-      dir3:set(rotation:transformPoint(car.look))
-      pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(smol_map.config_scale):add(-smol_map.offsets)
-      dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and smol_map.scale^0.3 or 1):scale(settings.arrowsize_smol):scale(cars[i].size)
-      dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and smol_map.scale^0.3 or 1):scale(settings.arrowsize_smol):scale(cars[i].size)
+      carTransforms(car,settings.arrowsize_smol*cars[i].size,smol_map)
       drawArrow(car, cars[i].color,settings.turn_signals_smol)
       cars[i].pos2:set(pos2.x,pos2.y)
     end
@@ -774,37 +806,37 @@ function script.windowMainSettings(dt)
 
     ui.tabItem('settings', function() --settings tab
       --if coloredButton('update comfy map','click to download and install latest comfy map from github') then comfyUpdate('main') end -- update button
-      ccheckbox('new render', 'new_render', 'redraw canvas after zooming to avoid drawing full size image when it is not necessary')
+      uicheckbox('new render', 'new_render', 'redraw canvas after zooming to avoid drawing full size image when it is not necessary')
       if ui.itemHovered() and ui.mouseReleased() then updateCanvas(main_map) updateCanvas(smol_map) end -- update canvases if toggled
-      ccheckbox("follow player", 'centered', 'middle clicking map also toggles this')
+      uicheckbox("follow player", 'centered', 'middle clicking map also toggles this')
       if settings.centered then
         ui.indent()
-        ccheckbox('rotate while following', 'rotation')
+        uicheckbox('rotate while following', 'rotation')
         ui.unindent()
       end
-      ccheckbox("teleports", 'teleporting','draw teleports on main map')
+      uicheckbox("teleports", 'teleporting','draw teleports on main map')
       if settings.teleporting then
         ui.indent()
-        ccheckbox("mouseover only##teleporting", 'teleporting_mouseover')
-        ccheckbox("rounded icons", 'new_teleports')
-        ccheckbox("warning when blocking a teleport", 'teleport_warning')
+        uicheckbox("mouseover only##teleporting", 'teleporting_mouseover')
+        uicheckbox("rounded icons", 'new_teleports')
+        uicheckbox("warning when blocking a teleport", 'teleport_warning')
         ui.unindent()
       end
-      ccheckbox("hide when not hovered", "main_map_mouseover", "hide main map when not hovered")
-      ccheckbox("traffic warnings", "traffic_warnings", "warning triangles on stopped or slowed down traffic")
-      ccheckbox("main map names", 'names')
+      uicheckbox("hide when not hovered", "main_map_mouseover", "hide main map when not hovered")
+      uicheckbox("traffic warnings", "traffic_warnings", "warning triangles on stopped or slowed down traffic")
+      uicheckbox("main map names", 'names')
       if settings.names then
         ui.indent()
-        ccheckbox("tagged only##names", 'names_tagged_only')
-        ccheckbox("mouseover only##names", 'names_mouseover')
+        uicheckbox("tagged only##names", 'names_tagged_only')
+        uicheckbox("mouseover only##names", 'names_mouseover')
         ui.unindent()
       end
 
       if ac.isWindowOpen('smol_map') then
-        ccheckbox("smol map names", 'names_smol')
+        uicheckbox("smol map names", 'names_smol')
         if settings.names_smol then
           ui.indent()
-          ccheckbox("mouseover only##names_smol", 'names_smol_mouseover')
+          uicheckbox("mouseover only##names_smol", 'names_smol_mouseover')
           ui.unindent()
         end
       end
@@ -813,9 +845,8 @@ function script.windowMainSettings(dt)
         if ui.itemEdited() then loadCars() end
         settings.namesx = ui.slider('##' .. 'name x offset', settings.namesx, -100,100, 'name x offset' .. ': %.0f')
         settings.namesy = ui.slider('##' .. 'name y offset', settings.namesy,-100,100, 'name y offset:' .. ': %.0f')
-        namepos:set(settings.namesx, settings.namesy)
-        ccheckbox("right click name to spectate", 'names_spectate')
-        ccheckbox("focused car's name", 'ownname')
+        uicheckbox("right click name to spectate", 'names_spectate')
+        uicheckbox("focused car's name", 'ownname')
       end
 
       if version<2278 then
@@ -827,40 +858,43 @@ function script.windowMainSettings(dt)
       end
     end)
 
+    local function uicolorbutton(name,color)
+      ui.colorButton(name,color, bit.bor(ui.ColorPickerFlags.AlphaBar, ui.ColorPickerFlags.AlphaPreview, ui.ColorPickerFlags.PickerHueBar))
+      if ui.itemEdited() then saveMarkers(markers) end
+    end
+
+    local function uislider(name,value,min,max,format,width,dont_save)
+      if width then ui.setNextItemWidth(width) end
+      local output, edited = ui.slider('##' .. name, value,min,max,format)
+      if (not dont_save) and edited then saveMarkers(markers) end
+      return output, edited
+    end
+
+
     ui.tabItem('colors&sizes', function() --arrows tab
-      ccheckbox("arrow size scales with zoom", 'arrow_scaling')
-      if ac.DriverTags then ccheckbox("content manager tags", 'tags') end
+      uicheckbox("arrow size scales with zoom", 'arrow_scaling')
+      if ac.DriverTags then uicheckbox("content manager tags", 'tags') end
       settings.centered_offset = ui.slider('##' .. 'centered_offset', settings.centered_offset, -0.5, 0.5, 'smol map offset' .. ': %.2f')
-      if ui.itemEdited() then centered_offset:set(0.5,0.5-settings.centered_offset) end
-      settings.arrowsize = ui.slider('##' .. 'arrowsize', settings.arrowsize, 5, 50, 'main map arrow size' .. ': %.0f')
+      settings.arrowsize = uislider('##' .. 'arrowsize', settings.arrowsize, 5, 50, 'main map arrow size' .. ': %.0f')
       settings.arrowsize_smol = ui.slider('##' .. 'arrowsize_smol', settings.arrowsize_smol, 5, 50, 'smol map arrow size' .. ': %.0f')
 
-      local changed = false
+
       ui.columns(2,false)
       for i, j in pairs(markers) do
-        ui.colorButton(i,j.color, bit.bor(ui.ColorPickerFlags.AlphaBar, ui.ColorPickerFlags.AlphaPreview, ui.ColorPickerFlags.PickerHueBar))
-        if ui.itemEdited() then changed = true end
+        uicolorbutton(i,j.color)
         ui.sameLine() ui.text(i)
         ui.nextColumn()
         if j.size~=nil then
-          ui.setNextItemWidth(100)
-          j.size = ui.slider('##' .. i .. 'size', j.size, 0,2, 'size' .. ': %.2f')
-          if ui.itemEdited() then changed = true end
+          j.size = uislider(i..'size',j.size,0,2,'size' .. ': %.2f',100)
         end
-        if i=='friend' then ui.sameLine() ccheckbox("##friends", 'friends') end
+        if i=='friend' then ui.sameLine() uicheckbox("##friends", 'friends') end
         if i=='turn_signals' and version>2051 then
-          ui.sameLine() ccheckbox("##turn signals", 'turn_signals', 'signals on main')
-          ui.sameLine() ccheckbox('##turn signals_smol','turn_signals_smol','signals on smol')
+          ui.sameLine() uicheckbox("##turn signals", 'turn_signals', 'signals on main')
+          ui.sameLine() uicheckbox('##turn signals_smol','turn_signals_smol','signals on smol')
         end
         if i=='map' then
-          ui.setNextItemWidth(100)
-          settings.centered_zoom, changedzoom = ui.slider('##' .. 'zoom', settings.centered_zoom, 0.1, 2, 'zoom' .. ': %.1f')
-          if changedzoom then
-            smol_map.scale = settings.centered_zoom
-            smol_map.size = smol_map.image_size*smol_map.scale
-            smol_map.config_scale = smol_map.scale/config.SCALE_FACTOR
-            updateCanvas(smol_map)      
-          end
+          settings.centered_zoom, changedzoom = uislider('##' .. 'zoom', settings.centered_zoom, 0.1, 2, 'zoom' .. ': %.1f',100,true)
+          if changedzoom then resetScale(smol_map) end
         end
         ui.nextColumn()
       end
@@ -868,10 +902,8 @@ function script.windowMainSettings(dt)
 
       if coloredButton('reset settings',rgbm.colors.maroon) then
         markers = stringify.parse(default_colors)
-        for i,j in pairs(defaults) do
-          settings[i] = j
-        end
-        changed = true
+        for i,j in pairs(defaults) do settings[i] = j end
+        saveMarkers(markers)
       end
 
       ui.sameLine()
@@ -884,9 +916,7 @@ function script.windowMainSettings(dt)
         onShowWindow1()
       end
 
-      if changed then
-        saveMarkers(markers)
-      end
+
       --  doesn't work yet
       --local mapFile = ui.combo('##mapselection',current_map:match(''),function ()
       --  if not mapFiles then return end
