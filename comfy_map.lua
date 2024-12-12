@@ -70,7 +70,7 @@ local defaults = {
   main_map_mouseover = false,
   traffic_warnings = true,
   traffic_smol = true,
-  traffic_main = false
+  traffic_main = true
 }
 local settings = ac.storage(defaults)
 
@@ -93,6 +93,48 @@ local config = {}
 local asd1 = nil
 local hoveringTeleport = false
 
+
+local mat2x2 = {}
+function mat2x2:new(x,y,z,w)
+  o = {x or 1,y or 0,z or 0,w or 1}
+  setmetatable(o, self)
+  self.__index = self
+  return o
+end
+function mat2x2.rotation(rad)
+  local c = math.cos(rad)
+  local s = math.sin(rad)
+  return mat2x2:new(c,s,-s,c)
+end
+function mat2x2:transform(v)
+  local x,y = v.x,v.y
+  return v:set(self[1]*x + self[2]*y, self[3]*x + self[4]*y)
+end
+
+
+--local function perftest(name,fun)
+--  ac.perfBegin(name)
+--  fun()
+--  ac.perfEnd(name)
+--end
+
+--perftest('2d',function ()
+--  local mat = mat2x2.rotation(math.rad(234))
+--  local mat1 = mat2x2.rotation(math.rad(234))
+--  for i=0,20 do
+--    local asd = (mat:transform(vec2(-1234,  1234)))
+--  end
+--end)
+--
+--
+--mat4x4rotation = mat4x4.rotation
+--local mat = mat4x4rotation(math.rad(234), vec.y)
+--local mat1 = mat4x4rotation(math.rad(234), vec.y)
+--perftest('3d',function ()
+--  for i=0,20 do
+--    local asd = (mat:transformPoint(  vec3(-1234,30,1234)))
+--  end
+--end)
 
 local pink = rgbm(1,175/255,1,1)
 local function getPlayerColor(i)
@@ -153,11 +195,11 @@ end
 
 local function loadMarkers()
   markers = stringify.parse(settings.markers)
-  if not markers then markers = stringify.parse(default_colors) end
-  if not markers.you then markers = stringify.parse(default_colors) end
-  if not markers.turn_signals then markers = stringify.parse(default_colors) end
-  if not markers.traffic then markers = stringify.parse(default_colors) end
-  settings.markers = stringify(m)
+  if not markers then markers = stringify.parse(default_colors) print('reset all') end
+  if not markers.you then markers = stringify.parse(default_colors) print('reset player') end
+  if not markers.turn_signals then markers = stringify.parse(default_colors) print('reset signals') end
+  if not markers.traffic then markers = stringify.parse(default_colors) print('reset traffic') end
+  settings.markers = stringify(markers)
 end
 
 local function saveMarkers(m)
@@ -192,16 +234,31 @@ function script.onShowWindow() --reset window positions
   end
 end
 
-local function carTransforms(car,size,map)
-  pos3:set(car.position)
-  dir3:set(car.look)
-  if map.centered and map.rotation then
-    pos3 = rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position
-    dir3 = rotation:transformPoint(car.look)
+local function map2dFrom3d(map,p3,d3)
+  if d3 then dir2:set(d3.x,d3.z) end
+  pos2:set(p3.x,p3.z)
+
+  if map.rotation and map.centered then
+    local fcp = vec2.tmp():set(focusedCar.position.x,focusedCar.position.z)
+    if d3 then rotation:transform(dir2) end
+    rotation:transform(pos2:sub(fcp)):add(fcp)
   end
-  pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(map.config_scale):add(-map.offsets)
-  dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and map.scale^0.3 or 1):scale(size)
-  dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and map.scale^0.3 or 1):scale(size)
+  pos2:add(config.OFFSETS):scale(map.config_scale):sub(map.offsets)
+  if d3 then
+    dir2:normalize():scale(map.arrowsize):scale(settings.arrow_scaling and map.scale^0.3 or 1)
+    dir2x:set(dir2.y, -dir2.x):normalize():scale(map.arrowsize):scale(settings.arrow_scaling and map.scale^0.3 or 1)
+  end
+end
+
+local function carTransforms(map,car,size)
+  map2dFrom3d(map,car.position,car.look)
+  dir2:scale(size)
+  dir2x:scale(size)
+  --dir2:scale()
+  --dir2:scale(size)
+  --dir2x:scale(size)
+  --dir2:set(dir3.x, dir3.z):scale(settings.arrow_scaling and map.scale^0.3 or 1):scale(size)
+  --dir2x:set(dir3.z, -dir3.x):scale(settings.arrow_scaling and map.scale^0.3 or 1):scale(size)
   --for k=0,3 do ui.drawCircleFilled(vec2.tmp():set(owncar.wheels[k].position.x,owncar.wheels[k].position.z):add(config.OFFSETS):scale(config_scale):sub(offsets),5,rgbm.colors.red) end
 end
 
@@ -250,18 +307,14 @@ local function drawTraffic(map)
     local car = ac.getCar(traffic[i].index)
 
     if map.traffic and car.isActive then
-      carTransforms(car,markers.traffic.size*map.arrowsize,map)
+      carTransforms(map,car,markers.traffic.size)
       drawArrow(car,markers.traffic.color,true,true)
     end
 
     if car.isActive and car.speedKmh<50 then
       add_warning = true
       if warning_timer>100 then
-        pos3:set(car.position)
-        if map.centered and map.rotation then
-          pos3 = rotation:transformPoint(car.position - focusedCar.position) + focusedCar.position
-        end
-        pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(map.config_scale):add(-map.offsets)
+        map2dFrom3d(map,car.position,car.look)
         ui.beginOutline()
         ui.drawIcon(ui.Icons.Warning,pos2-iconsize*2,pos2+iconsize*2,rgbm.colors.orange)
         ui.endOutline(rgbm.colors.black)
@@ -468,8 +521,6 @@ end
 local function drawTeleport(j,index)
   local teleport_position = j.POS
   local teleport_name = (j.GROUP and (j.GROUP .. '/') or "") .. j.POINT
-  if settings.centered and settings.rotation then teleport_position = (rotation:transformPoint(teleport_position - focusedCar.position) + focusedCar.position) end
-  iconpos:set(teleport_position.x, teleport_position.z):add(config.OFFSETS):scale(main_map.config_scale):add(-main_map.offsets)
   local h = math.rad(j.HEADING + ac.getCompassAngle(vec.z) + (settings.centered and settings.rotation and rotationangle or 0))
   local size = iconsize
   local color = rgbm.colors.fuchsia
@@ -489,21 +540,21 @@ local function drawTeleport(j,index)
       end
     end
   else teleport_name = teleport_name .. index end
-
+  map2dFrom3d(main_map,j.POS)
   dir2:set(math.sin(h), math.cos(h))
   if settings.new_teleports then
     ui.beginOutline()
-    ui.pathLineTo(iconpos + dir2*size.x*2)
-    ui.pathArcTo(iconpos, size.x*0.7, -h, -h-math.pi, 5)
+    ui.pathLineTo(pos2 + dir2*size.x*2)
+    ui.pathArcTo(pos2, size.x*0.7, -h, -h-math.pi, 5)
     ui.pathFillConvex(color)
     ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2*1.3)
   else
     ui.beginOutline()
-    ui.drawCircleFilled(iconpos, size.x*0.8, color, 10)
-    ui.drawLine(iconpos, iconpos + dir2 * size.x*2, color)
+    ui.drawCircleFilled(pos2, size.x*0.8, color, 10)
+    ui.drawLine(pos2, pos2 + dir2 * size.x*2, color)
     ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
   end
-  ui.setCursor(iconpos - size)
+  ui.setCursor(pos2 - size)
   ui.dummy(size * 2)
   if j.ONLINE then
     if ui.itemClicked(ui.MouseButton.Right) then
@@ -589,7 +640,8 @@ local function drawMap(map)
 
     if map.rotation then
       rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
-      rotation = mat4x4.rotation(math.rad(rotationangle), vec.y)
+      --rotation = mat4x4.rotation(math.rad(rotationangle), vec.y)
+      rotation = mat2x2.rotation(math.rad(rotationangle))
       ui.beginRotation()
     end
   end
@@ -669,7 +721,7 @@ function script.windowMain(dt)
     local car = ac.getCar(cars[i].index)
     if shouldDrawCar(cars[i].index) then
       cars[i].color, cars[i].size = getPlayerColor(cars[i].index)
-      carTransforms(car,settings.arrowsize*cars[i].size,main_map)
+      carTransforms(main_map,car,cars[i].size)
       drawArrow(car,cars[i].color,settings.turn_signals)
       cars[i].pos2:set(pos2.x,pos2.y)
 
@@ -706,13 +758,7 @@ function script.windowMain(dt)
   if sim.cameraMode == ac.CameraMode.Free then
     pos3 = ac.getCameraPosition()
     dir3 = ac.getCameraForward()
-    if settings.centered and settings.rotation then
-      pos3 = rotation:transformPoint(pos3 - focusedCar.position) + focusedCar.position
-      dir3 = rotation:transformPoint(dir3)
-    end
-    pos2:set(pos3.x, pos3.z):add(config.OFFSETS):scale(main_map.config_scale):sub(main_map.offsets)
-    dir2:set(dir3.x, dir3.z):normalize():scale(settings.arrowsize):scale(settings.arrow_scaling and main_map.scale^0.3 or 1)
-    dir2x:set(dir3.z, -dir3.x):normalize():scale(settings.arrowsize):scale(settings.arrow_scaling and main_map.scale^0.3 or 1)
+    map2dFrom3d(main_map,pos3,dir3)
     drawArrow(_,rgbm.colors.green)
   end
 
@@ -784,7 +830,7 @@ function windowSmol(dt)
     local car = ac.getCar(cars[i].index)
     if shouldDrawCar(cars[i].index) then
       cars[i].color, cars[i].size = getPlayerColor(cars[i].index)
-      carTransforms(car,settings.arrowsize_smol*cars[i].size,smol_map)
+      carTransforms(smol_map,car,cars[i].size)
       drawArrow(car, cars[i].color,settings.turn_signals_smol)
       cars[i].pos2:set(pos2.x,pos2.y)
     end
@@ -861,7 +907,7 @@ function script.windowMainSettings(dt)
 
     local function uicolorbutton(name,color)
       ui.colorButton(name,color, bit.bor(ui.ColorPickerFlags.AlphaBar, ui.ColorPickerFlags.AlphaPreview, ui.ColorPickerFlags.PickerHueBar))
-      if ui.itemEdited() then saveMarkers(markers) end
+      if ui.itemEdited() then saveMarkers(markers) print(markers) end
     end
 
     local function uislider(name,value,min,max,format,width,dont_save)
