@@ -370,6 +370,8 @@ end
 
 local function updateCanvas(map)
   if map.scale <=0 then map.scale = settings.centered_zoom end
+  map.radius = (math.max(ui.windowHeight(),ui.windowWidth())/(map.scale / config.SCALE_FACTOR)/2)^2
+  ac.debug('radius',map.radius)
   if not settings.new_render then return end
   map.canvas:dispose()
   map.canvas = ui.ExtraCanvas(map.image_size*math.clamp(map.scale,0.01,1))
@@ -828,7 +830,7 @@ function windowSmol(dt)
 
   for i=1, #cars do  --draw stuff on small map
     local car = ac.getCar(cars[i].index)
-    if shouldDrawCar(cars[i].index) then
+    if shouldDrawCar(cars[i].index) and (car.position:distanceSquared(focusedCar.position)<smol_map.radius) then
       cars[i].color, cars[i].size = getPlayerColor(cars[i].index)
       carTransforms(smol_map,car,cars[i].size)
       drawArrow(car, cars[i].color,settings.turn_signals_smol)
@@ -837,7 +839,11 @@ function windowSmol(dt)
   end
   if settings.traffic_warnings then drawTraffic(smol_map) end
   for i=1, #cars do
-    if settings.names_smol and (not settings.names_smol_mouseover or ui.windowHovered()) and shouldDrawCar(cars[i].index) then drawName(cars[i]) end
+    if settings.names_smol
+      and (not settings.names_smol_mouseover or ui.windowHovered())
+      and shouldDrawCar(cars[i].index)
+      and (ac.getCar(cars[i].index).position:distanceSquared(focusedCar.position)<smol_map.radius)
+    then drawName(cars[i]) end
   end
 end
 
