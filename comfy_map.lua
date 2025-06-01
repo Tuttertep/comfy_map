@@ -37,6 +37,10 @@ local default_colors = stringify{
     color = rgbm(0.1,0.1,0.1,0.4),
     size = 0.5,
   },
+  muted = {
+    color = rgbm(0.5,0,0,0.9),
+    size = 1,
+  },
 }
 
 local defaults = {
@@ -69,8 +73,8 @@ local defaults = {
   tags = false,
   main_map_mouseover = false,
   traffic_warnings = true,
-  traffic_smol = true,
-  traffic_main = true
+  traffic_smol = false,
+  traffic_main = false
 }
 local settings = ac.storage(defaults)
 
@@ -148,6 +152,7 @@ local function getPlayerColor(i)
   end
   if settings.tags and ac.DriverTags then
     local tags = ac.DriverTags(ac.getDriverName(i))
+    if tags.muted then return markers.muted.color, markers.muted.size end
     if tags.color~=rgbm.colors.white then return tags.color, markers.friend.size end
   end
   return markers.player.color,markers.player.size
@@ -176,15 +181,10 @@ end
 local cars = {}
 local function loadCars()
   cars = {}
-  traffic = {}
   asd1 = nil
   for i=0, sim.carsCount-1 do
     check(i)
-    if ac.getCar(i).isHidingLabels or (sim.isReplayOnlyMode and ac.getDriverName(i):find('Traffic')) then
-      table.insert(traffic,{index = i,name = "",pos2=vec2()})
-    else
-      table.insert(cars,{index = i,name = "",pos2=vec2()})
-    end
+    table.insert(cars,{index = i,name = "",pos2=vec2()})
   end
   table.sort(cars, function (a,b)
     if a.index*b.index==0 then return b.index==0 end
@@ -271,6 +271,8 @@ local function drawArrow(car,color,signals,square)
       pos2 - dir2 - dir2x * 0.5, --right
       pos2 - dir2 + dir2x * 0.5, --left
     color)
+    --ui.drawLine(pos2-dir2, pos2+dir2, rgbm.colors.color, 6)
+    ui.drawLine(pos2+dir2*0.5,pos2+dir2*1.5,rgbm.colors.lime,4)
   else
     ui.drawTriangleFilled(pos2 + dir2, --up
       pos2 - dir2 - dir2x * 0.75, --right
@@ -303,15 +305,15 @@ end
 local warning_timer = 0
 local function drawTraffic(map)
   local add_warning = false
-  for i=1, #traffic do
-    local car = ac.getCar(traffic[i].index)
-
-    if map.traffic and car.isActive then
+  for i=1, sim.carsCount-1 do
+    local car = ac.getCar(i)
+    local shouldDrawTraffic = car.isHidingLabels and car.isActive
+    if map.traffic and shouldDrawTraffic then
       carTransforms(map,car,markers.traffic.size)
       drawArrow(car,markers.traffic.color,true,true)
     end
 
-    if car.isActive and car.speedKmh<50 then
+    if shouldDrawTraffic and car.speedKmh<50 then
       add_warning = true
       if warning_timer>100 then
         map2dFrom3d(map,car.position,car.look)
@@ -370,7 +372,7 @@ end
 
 local function updateCanvas(map)
   if map.scale <=0 then map.scale = settings.centered_zoom end
-  map.radius = (math.max(ui.windowHeight(),ui.windowWidth())/(map.scale / config.SCALE_FACTOR)/2)^2
+  map.radius = (math.sqrt(ui.windowHeight()^2+ui.windowWidth()^2)/(map.scale / config.SCALE_FACTOR)/2)^2
   ac.debug('radius',map.radius)
   if not settings.new_render then return end
   map.canvas:dispose()
@@ -381,13 +383,13 @@ local function updateCanvas(map)
 end
 
 local function resetScale(map)
-  local zoomed = map.centered and map.rotation
+  local zoomed = map.centered-- and map.rotation
   local extra_space = ui.windowSize()*0.01
   map.offsets = -padding - extra_space
   map.image_size = ui.imageSize(map.image) or vec2(config.WIDTH,config.HEIGHT)
   local windowSize = ui.windowSize()-padding-extra_space*2
   map.scale = math.min(windowSize.x / map.image_size.x, windowSize.y / map.image_size.y)
-  if zoomed then map.scale = settings.centered_zoom end
+  if zoomed then map.scale = map.default_scale end
   map.size = map.image_size * map.scale
   map.config_scale = map.scale / config.SCALE_FACTOR
   updateCanvas(map)
@@ -441,6 +443,15 @@ local function safetyRating(carIndex)
   return nil
 end
 
+local counter = 0
+local function mouseVisible()
+  if ui.mouseDelta()~=vec.empty2 then counter = 0
+  elseif counter<300 then counter = counter + 1 end
+  ac.debug('counter',counter)
+  return counter<300
+  --return ui.mouseCursor()~=ui.MouseCursor.None -- since 0.2.8p4 (3338) (mouse is sometimes bugged)
+end
+
 local function drawName(car)
   if #car.name==0 then car.name = clampName(car.index) end
   if car.index==sim.focusedCar and (not settings.ownname) then return end
@@ -450,10 +461,12 @@ local function drawName(car)
   --ui.drawLine(car.pos2, car.pos2 + namepos , car.color, 2)
   ui.beginOutline()
   ui.text(car.name)
-  if ui.itemHovered() then
+  ac.debug('mouse',ui.mouseCursor())
+  if ui.itemHovered() and mouseVisible() then
     ui.setTooltip(ac.getDriverName(car.index)
        .. '\n' .. ac.getCarID(car.index)
        .. '\n' .. math.round(ac.getCar(car.index).speedKmh,-1) .. ' km/h'
+       .. '\ntyres: ' .. ac.getTyresName(car.index)
        .. (safetyRating(car.index) and ('\nsafety rating: ' .. safetyRating(car.index)) or '')
     )
   end
@@ -470,6 +483,7 @@ local function newMap(file,is_main)
     canvas = ui.ExtraCanvas(1),
   }
   if is_main then
+    map.default_scale = settings.centered_zoom
     setmetatable(map,{
       __index = function(tbl, key)
           if key == "rotation" then return settings.rotation end
@@ -486,6 +500,7 @@ local function newMap(file,is_main)
           if key == "traffic" then return settings.traffic_smol end
           if key == "signals" then return settings.turn_signals_smol end
           if key == "arrowsize" then return settings.arrowsize_smol end
+          if key == "default_scale" then return settings.centered_zoom end
           return rawget(tbl, key)
       end,
     })
@@ -589,7 +604,7 @@ local function drawTeleport(j,index)
     if ui.itemClicked(ui.MouseButton.Left) then ac.setCurrentCamera(ac.CameraMode.Free) ac.setCameraPosition(j.POS) ac.setCameraDirection(dir3:set(dir2.x,0,dir2.y)) end
     if ui.itemClicked(ui.MouseButton.Right) then table.remove(collected_teleports, index) print(index) end
   end
-  if ui.itemHovered() then ui.setTooltip(teleport_name) hoveringTeleport = true end
+  if ui.itemHovered() and mouseVisible() then ui.setTooltip(teleport_name) hoveringTeleport = true end
 end
 
 local function saveTeleports(collected_teleports)
@@ -711,6 +726,7 @@ function script.windowMain(dt)
     end
     if ui.mouseClicked(2) then --toggle centering with middle click
       settings.centered = not settings.centered
+      if not settings.centered then main_map.default_scale = main_map.scale end
       resetScale(main_map)
     end
   end
@@ -723,14 +739,15 @@ function script.windowMain(dt)
     local car = ac.getCar(cars[i].index)
     if shouldDrawCar(cars[i].index) then
       cars[i].color, cars[i].size = getPlayerColor(cars[i].index)
-      carTransforms(main_map,car,cars[i].size)
-      drawArrow(car,cars[i].color,settings.turn_signals)
-      cars[i].pos2:set(pos2.x,pos2.y)
-
+      if cars[i].color then
+        carTransforms(main_map,car,cars[i].size)
+        drawArrow(car,cars[i].color,settings.turn_signals)
+        cars[i].pos2:set(pos2.x,pos2.y)
+      end
     end
   end
 
-  if settings.traffic_warnings then drawTraffic(main_map) end
+  if settings.traffic_warnings or settings.traffic_main then drawTraffic(main_map) end
 
   for i=1, #cars do
     if shouldDrawCar(cars[i].index) then
@@ -758,20 +775,21 @@ function script.windowMain(dt)
 
 
   if sim.cameraMode == ac.CameraMode.Free then
-    pos3 = ac.getCameraPosition()
-    dir3 = ac.getCameraForward()
+    ac.getCameraPositionTo(pos3)
+    ac.getCameraForwardTo(dir3)
     map2dFrom3d(main_map,pos3,dir3)
     drawArrow(_,rgbm.colors.green)
   end
 
-  if not (settings.centered and settings.rotation) and ui.keyPressed(ui.Key.Space) and ui.windowHovered() then --freecam teleport
+  if ui.keyPressed(ui.Key.Space) and ui.windowHovered() then --freecam teleport
     pos2:set(ui.mouseLocalPos()):add(main_map.offsets):scale(1/main_map.config_scale):sub(config.OFFSETS)
+    if settings.centered and settings.rotation then pos2 = rotation:transform(pos2) end
 
     allow = true
     local raycastheight = 3000
     pos3:set(pos2.x, raycastheight, pos2.y)
     local initialray = physics.raycastTrack(pos3,-vec.y,raycastheight*2)
-    if initialray~=-1 and sim.cameraMode == ac.CameraMode.Free then --freecam stuff
+    if initialray~=-1 and sim.cameraMode == ac.CameraMode.Free then -- if in freecam, just teleport camera
       return ac.setCameraPosition(pos3-vec.y*(initialray-3))
     end
 
@@ -781,7 +799,7 @@ function script.windowMain(dt)
     end
     local carside = normalize3Dto2Dto3D(owncar.side)
     local carlook = normalize3Dto2Dto3D(owncar.look)
-    for i=1, 100 do
+    for i=1, 100 do -- this is a mess but it works for now
       local side = math.random(-owncar.aabbSize.x/2 +owncar.aabbCenter.x,owncar.aabbSize.x/2 +owncar.aabbCenter.x)
       local look = math.random(-owncar.aabbSize.z/2 +owncar.aabbCenter.z,owncar.aabbSize.z/2 +owncar.aabbCenter.z)
       local pos = pos3 + carlook*look + carside*side
@@ -837,7 +855,7 @@ function windowSmol(dt)
       cars[i].pos2:set(pos2.x,pos2.y)
     end
   end
-  if settings.traffic_warnings then drawTraffic(smol_map) end
+  if settings.traffic_warnings or settings.traffic_smol then drawTraffic(smol_map) end
   for i=1, #cars do
     if settings.names_smol
       and (not settings.names_smol_mouseover or ui.windowHovered())
