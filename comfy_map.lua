@@ -169,7 +169,7 @@ end
 
 local function shouldDrawCar(index)
   local car = ac.getCar(index)
-  return ((not sim.isReplayOnlyMode) and car.isConnected and (not car.isHidingLabels)) or (sim.isReplayActive and car.isActive)
+  return car.isActive and (not car.isHidingLabels)
 end
 
 local function isTagged(i)
@@ -222,13 +222,25 @@ local safetyRatingApi = ac.StructItem.struct and ac.connect({
 
 function script.onShowWindow() --reset window positions
   local screenSize = uiState.windowSize
-  local function vec2Inside(point,square) return point.x>-50 and point.y>-10 and point.x<square.x and point.y<square.y end
+  local function vec2Inside(point,square)
+    return point.x>-50 and point.y>-10 and point.x<square.x and point.y<square.y
+  end
+
+  local function clamp(point, square)
+    return vec2(
+      math.min(math.max(point.x, 0), square.x),
+      math.min(math.max(point.y, 0), square.y)
+    )
+  end
+
 
   if ac.accessAppWindow and ac.getAppWindows then
     for i,j in pairs(ac.getAppWindows()) do
       if j.name:find('IMGUI_LUA_comfy') or (ui.hotkeyCtrl() and j.name:find('IMGUI_LUA')) then
         local acsr = ac.accessAppWindow(j.name)
-        if acsr and not vec2Inside(acsr:position(),screenSize) then print(j.name,'off-screen at',acsr:position()) acsr:move(vec2(0,0)) end
+        local pos = vec2.tmp():set(acsr:position())
+        print(j.name, pos, screenSize)
+        if acsr and not vec2Inside(pos,screenSize) then print(j.name,'off-screen at',pos, screenSize) acsr:move(clamp(pos,screenSize)) end
       end
     end
   end
@@ -313,7 +325,7 @@ local function drawTraffic(map)
       drawArrow(car,markers.traffic.color,true,true)
     end
 
-    if shouldDrawTraffic and car.speedKmh<50 then
+    if shouldDrawTraffic and settings.traffic_warnings and car.speedKmh<50 then
       add_warning = true
       if warning_timer>100 then
         map2dFrom3d(map,car.position,car.look)
@@ -372,14 +384,11 @@ end
 
 local function updateCanvas(map)
   if map.scale <=0 then map.scale = settings.centered_zoom end
-  map.radius = (math.sqrt(ui.windowHeight()^2+ui.windowWidth()^2)/(map.scale / config.SCALE_FACTOR)/2)^2
-  ac.debug('radius',map.radius)
+  map.radius = ((ui.windowHeight()^2+ui.windowWidth()^2)/(map.scale / config.SCALE_FACTOR*2)^2)
   if not settings.new_render then return end
   map.canvas:dispose()
   map.canvas = ui.ExtraCanvas(map.image_size*math.clamp(map.scale,0.01,1))
-  map.canvas:update(function (dt)
-    ui.image(map.image,map.canvas:size())
-  end)
+  map.canvas:update(function (dt) ui.image(map.image,map.canvas:size()) end)
 end
 
 local function resetScale(map)
@@ -453,15 +462,17 @@ local function mouseVisible()
 end
 
 local function drawName(car)
-  if #car.name==0 then car.name = clampName(car.index) end
+  if #car.name==0 then
+    car.name = clampName(car.index)
+    ui.pushFont(ui.Font.Small) car.name_offset = ui.measureText(car.name)*0.5 ui.popFont()
+  end
   if car.index==sim.focusedCar and (not settings.ownname) then return end
   if settings.names_tagged_only and (not isTagged(car.index)) then return end
-  ui.pushFont(ui.Font.Small)
-  ui.setCursor(car.pos2 + vec2.tmp():set(settings.namesx,settings.namesy) - ui.measureText(car.name) * 0.5)
+  ui.setCursor(vec2.tmp():set(settings.namesx,settings.namesy):sub(car.name_offset):add(car.pos2))
   --ui.drawLine(car.pos2, car.pos2 + namepos , car.color, 2)
   ui.beginOutline()
+  ui.pushFont(ui.Font.Small)
   ui.text(car.name)
-  ac.debug('mouse',ui.mouseCursor())
   if ui.itemHovered() and mouseVisible() then
     ui.setTooltip(ac.getDriverName(car.index)
        .. '\n' .. ac.getCarID(car.index)
@@ -653,7 +664,7 @@ end
 
 local function drawMap(map)
   if map.centered then --center on car and rotate
-    map.offsets:set(focusedCar.position.x, focusedCar.position.z):add(config.OFFSETS):scale(map.scale / config.SCALE_FACTOR):add(-ui.windowSize()*vec2.tmp():set(0.5,0.5-settings.centered_offset)) --autocenter
+    map.offsets:set(focusedCar.position.x, focusedCar.position.z):add(config.OFFSETS):scale(map.scale / config.SCALE_FACTOR):sub(vec2.tmp():set(0.5,0.5-settings.centered_offset):mul(ui.windowSize())) --autocenter
 
     if map.rotation then
       rotationangle = 180 - math.deg(math.atan2(focusedCar.look.x, focusedCar.look.z))
@@ -662,17 +673,18 @@ local function drawMap(map)
       ui.beginRotation()
     end
   end
+  local outline_scale = math.saturate(markers.map.color.mult*markers.map.color.mult * map.scale*map.scale*map.scale*map.scale)
 
-  ui.beginOutline()
+  if outline_scale > 0.05 then ui.beginOutline() end
   if settings.new_render then
     ui.drawImage(map.canvas, -map.offsets,  -map.offsets + map.size, markers.map.color) --map image
   else
     ui.drawImage(map.image, -map.offsets, -map.offsets + map.size, markers.map.color) --map image
   end
-  ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  markers.map.color.mult^2)
+  if outline_scale > 0.05 then ui.endOutline(outline:set(rgbm.colors.black, markers.map.color.mult),  outline_scale) end
 
 
-  if map.centered and map.rotation then ui.endPivotRotation(rotationangle + 90, ui.windowSize()*vec2.tmp():set(0.5,0.5-settings.centered_offset)) end
+  if map.centered and map.rotation then ui.endPivotRotation(rotationangle + 90, vec2.tmp():set(0.5,0.5-settings.centered_offset):mul(ui.windowSize())) end
 
 end
 
@@ -704,6 +716,11 @@ ac.onClientConnected( function(i, j) -- reload cars when someone joins to sort f
   if ac.setDriverChatNameColor then ac.setDriverChatNameColor(i,nil) end
   setTimeout(function () loadCars() end, 5) end)
 setTimeout(loadCars, 5)
+
+ac.onChatMessage( function (message, index)
+  if not message:find('Teleport to:') then return false end
+  local name = message:match('Teleport to: (.+)')
+end)
 
 function script.windowMain(dt)
   if settings.main_map_mouseover and not ui.windowHovered(105) then return end
